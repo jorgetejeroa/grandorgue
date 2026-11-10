@@ -96,6 +96,7 @@ gui/dialogs/settings/GOSettingsOrgans.cpp
 gui/dialogs/settings/GOSettingsReverb.cpp
 gui/dialogs/settings/GOSettingsTemperaments.cpp
 gui/dialogs/GOMidiChannelMappingDialog.cpp
+gui/dialogs/GOMidiPlaylistDialog.cpp
 gui/dialogs/GOMidiObjectsDialog.cpp
 gui/dialogs/GONewReleaseDialog.cpp
 gui/dialogs/GOProgressDialog.cpp

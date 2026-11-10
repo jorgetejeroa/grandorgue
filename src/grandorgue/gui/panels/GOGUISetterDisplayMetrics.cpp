@@ -99,8 +99,8 @@ GOGUISetterDisplayMetrics::GOGUISetterDisplayMetrics(
 
   case GOGUI_RECORDER:
     x_size = 400;
-    y_size = 270;
-    drawstop_rows = 3;
+    y_size = 340;
+    drawstop_rows = 4;
     drawstop_cols = 5;
     button_cols = 10;
     button_rows = 0;

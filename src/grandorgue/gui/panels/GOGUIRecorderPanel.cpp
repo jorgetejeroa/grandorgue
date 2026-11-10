@@ -121,5 +121,31 @@ GOGUIPanel *GOGUIRecorderPanel::CreateRecorderPanel(GOConfigReader &cfg) {
   label->Init(cfg, wxT("MidiPlayerLabel"), 310, 185, wxT(""));
   panel->AddControl(label);
 
+  label = new GOGUILabel(panel, NULL);
+  label->Init(cfg, wxT("MidiRecorderNameLabel"), 1, 255, _("Player tempo"));
+  panel->AddControl(label);
+
+  button = new GOGUIButton(
+    panel, m_OrganController->GetButtonControl(wxT("MidiPlayerSlower")), false);
+  button->Init(cfg, wxT("MidiPlayerSlower"), 2, 103);
+  panel->AddControl(button);
+
+  button = new GOGUIButton(
+    panel,
+    m_OrganController->GetButtonControl(wxT("MidiPlayerTempoReset")),
+    false);
+  button->Init(cfg, wxT("MidiPlayerTempoReset"), 3, 103);
+  panel->AddControl(button);
+
+  button = new GOGUIButton(
+    panel, m_OrganController->GetButtonControl(wxT("MidiPlayerFaster")), false);
+  button->Init(cfg, wxT("MidiPlayerFaster"), 4, 103);
+  panel->AddControl(button);
+
+  label = new GOGUILabel(
+    panel, m_OrganController->GetLabel(wxT("MidiPlayerTempoLabel")));
+  label->Init(cfg, wxT("MidiPlayerTempoLabel"), 310, 255, wxT(""));
+  panel->AddControl(label);
+
   return panel;
 }

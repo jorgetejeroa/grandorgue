@@ -358,6 +358,9 @@ public:
     const wxString &filename,
     const GOConfig::MidiChannelMappingChooser &chooseMapping);
 
+  /** @return the MIDI player of this organ */
+  GOMidiPlayer *GetMidiPlayer() { return m_MidiPlayer; }
+
   int GetGain() const { return m_SoundEngine.GetGain(); }
   /** Sets the master gain and forwards it to the sound engine. */
   void SetGain(int gain) { m_SoundEngine.SetGain(gain); }

@@ -13,6 +13,7 @@
 
 #include <wx/frame.h>
 
+#include "gui/dialogs/GOMidiPlaylistDialog.h"
 #include "gui/size/GOResizable.h"
 #include "help/GOHelpRequestor.h"
 #include "midi/GOMidiListener.h"
@@ -44,7 +45,8 @@ class GOAppWindow : public wxFrame,
                     public GOResizable,
                     protected GOMidiCallback,
                     private GOModificationListener,
-                    private GOSoundCloseListener {
+                    private GOSoundCloseListener,
+                    private GOMidiPlaylistDialog::Host {
 private:
   GOGuiApp &r_app;
   GOConfig &r_config;
@@ -52,6 +54,8 @@ private:
   GOMidiSystem &r_MidiSystem;
 
   GOMutex m_mutex;
+
+  GOMidiPlaylistDialog *m_MidiPlaylist = nullptr;
 
   wxMenu *m_file_menu;
   wxMenu *m_audio_menu;
@@ -164,6 +168,12 @@ private:
 
   void OnSettings(wxCommandEvent &event);
   void OnMidiLoad(wxCommandEvent &event);
+  void OnMidiPlaylist(wxCommandEvent &event);
+
+  // GOMidiPlaylistDialog::Host
+  GOMidiPlayer *GetMidiPlayer() override;
+  bool LoadMidiFile(
+    const wxString &path, std::function<void()> onFinished) override;
   void OnMidiMonitor(wxCommandEvent &event);
 
   void OnPreset(wxCommandEvent &event);

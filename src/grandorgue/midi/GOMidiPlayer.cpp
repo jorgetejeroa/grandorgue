@@ -25,6 +25,9 @@ enum {
   ID_MIDI_PLAYER_PLAY = 0,
   ID_MIDI_PLAYER_STOP,
   ID_MIDI_PLAYER_PAUSE,
+  ID_MIDI_PLAYER_SLOWER,
+  ID_MIDI_PLAYER_TEMPO_RESET,
+  ID_MIDI_PLAYER_FASTER,
 };
 
 static const GOMidiObjectContext MIDI_CONTEXT(
@@ -49,6 +52,24 @@ const GOElementCreator::ButtonDefinitionEntry BUTTON_DEFS[] = {
    true,
    false,
    &MIDI_CONTEXT},
+  {wxT("MidiPlayerSlower"),
+   ID_MIDI_PLAYER_SLOWER,
+   false,
+   true,
+   false,
+   &MIDI_CONTEXT},
+  {wxT("MidiPlayerTempoReset"),
+   ID_MIDI_PLAYER_TEMPO_RESET,
+   false,
+   true,
+   false,
+   &MIDI_CONTEXT},
+  {wxT("MidiPlayerFaster"),
+   ID_MIDI_PLAYER_FASTER,
+   false,
+   true,
+   false,
+   &MIDI_CONTEXT},
   {wxT(""), -1, false, false, false},
 };
 
@@ -65,14 +86,17 @@ GOMidiPlayer::GOMidiPlayer(GOOrganController *organController)
     p_midi(nullptr),
     m_content(),
     m_PlayingTime(*organController, &MIDI_CONTEXT),
+    m_TempoLabel(*organController, &MIDI_CONTEXT),
     m_Start(0),
     m_PlayingSeconds(0),
     m_Speed(1),
+    m_TempoPercent(100),
     m_IsPlaying(false),
     m_Pause(false) {
   CreateButtons(*organController, BUTTON_DEFS);
   m_DeviceID = r_MidiMap.EnsureLogicalName(_("GrandOrgue MIDI Player"));
   ResetUI();
+  UpdateTempoDisplay();
 }
 
 GOMidiPlayer::~GOMidiPlayer() { Cleanup(); }
@@ -83,6 +107,14 @@ void GOMidiPlayer::Load(GOConfigReader &cfg) {
   m_buttons[ID_MIDI_PLAYER_PAUSE]->Init(
     cfg, wxT("MidiPlayerPause"), _("PAUSE"));
   m_PlayingTime.Init(cfg, wxT("MidiPlayerTime"), _("MIDI playing time"));
+  m_buttons[ID_MIDI_PLAYER_SLOWER]->Init(
+    cfg, wxT("MidiPlayerSlower"), _("SLOWER"));
+  m_buttons[ID_MIDI_PLAYER_TEMPO_RESET]->Init(
+    cfg, wxT("MidiPlayerTempoReset"), _("TEMPO 100%"));
+  m_buttons[ID_MIDI_PLAYER_FASTER]->Init(
+    cfg, wxT("MidiPlayerFaster"), _("FASTER"));
+  m_TempoLabel.Init(cfg, wxT("MidiPlayerTempo"), _("MIDI player tempo"));
+  UpdateTempoDisplay();
 }
 
 void GOMidiPlayer::ButtonStateChanged(int id, bool newState) {
@@ -97,6 +129,19 @@ void GOMidiPlayer::ButtonStateChanged(int id, bool newState) {
 
   case ID_MIDI_PLAYER_PAUSE:
     Pause();
+    break;
+
+  case ID_MIDI_PLAYER_SLOWER:
+    if (m_TempoPercent > TEMPO_MIN)
+      SetTempoPercent(m_TempoPercent - TEMPO_STEP);
+    break;
+
+  case ID_MIDI_PLAYER_TEMPO_RESET:
+    SetTempoPercent(100);
+    break;
+
+  case ID_MIDI_PLAYER_FASTER:
+    SetTempoPercent(m_TempoPercent + TEMPO_STEP);
     break;
   }
 }
@@ -255,6 +300,8 @@ void GOMidiPlayer::HandleTimer() {
     if (e.GetTime() * m_Speed + m_Start <= now) {
       if (!m_content.Next()) {
         StopPlaying();
+        if (m_OnFinished)
+          m_OnFinished();
         return;
       }
       e.SetDevice(m_DeviceID);
@@ -271,6 +318,45 @@ void GOMidiPlayer::HandleTimer() {
   } while (true);
 }
 
+void GOMidiPlayer::UpdateTempoDisplay() {
+  m_TempoLabel.SetContent(wxString::Format(_("Tempo %u%%"), m_TempoPercent));
+}
+
+void GOMidiPlayer::SetTempoPercent(unsigned percent) {
+  if (percent < TEMPO_MIN)
+    percent = TEMPO_MIN;
+  if (percent > TEMPO_MAX)
+    percent = TEMPO_MAX;
+  if (percent != m_TempoPercent) {
+    const float newSpeed = 100.0f / percent;
+
+    if (m_IsPlaying) {
+      // Keep the current position in the file and continue with the new
+      // tempo from there. While paused, m_Start holds the elapsed real time
+      // instead of the start time (see Pause())
+      if (m_Pause) {
+        const double elapsed = m_Start.ToDouble();
+
+        m_Start = (wxLongLong_t)(elapsed / m_Speed * newSpeed);
+      } else {
+        const GOTime now = wxGetLocalTimeMillis();
+        const double filePos = (now - m_Start).ToDouble() / m_Speed;
+
+        m_Start = now - (wxLongLong_t)(filePos * newSpeed);
+      }
+    }
+    m_Speed = newSpeed;
+    m_TempoPercent = percent;
+    UpdateTempoDisplay();
+
+    if (m_IsPlaying && !m_Pause) {
+      // reschedule the next event with the new tempo
+      r_timer.DeleteTimer(this);
+      HandleTimer();
+    }
+  }
+}
+
 GOEnclosure *GOMidiPlayer::GetEnclosure(const wxString &name, bool is_panel) {
   return NULL;
 }
@@ -282,6 +368,8 @@ GOLabelControl *GOMidiPlayer::GetLabelControl(
 
   if (name == wxT("MidiPlayerLabel"))
     return &m_PlayingTime;
+  if (name == wxT("MidiPlayerTempoLabel"))
+    return &m_TempoLabel;
   return NULL;
 }
 

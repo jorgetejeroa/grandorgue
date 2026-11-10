@@ -379,6 +379,9 @@ GOConfig::GOConfig(
       wxT("MidiPlayerChannelMappingWithoutInputNumber"),
       MIDI_FILE_CHANNEL_MAPPINGS,
       MIDI_PLAY_CHANNELS_PEDAL_LAST),
+    MidiPlaylistPath(this, GENERAL, wxT("MIDIPlaylistPath"), wxEmptyString),
+    MidiPlaylistAutoAdvance(
+      this, GENERAL, wxT("MIDIPlaylistAutoAdvance"), false),
     CheckForUpdatesAtStartup(
       this, GENERAL, wxT("CheckForUpdatesAtStartup"), true),
     m_MidiIn(MIDI_IN),
@@ -693,7 +696,7 @@ void GOConfig::LoadDefaults() {
     const GOElementCreator::ButtonDefinitionEntry *pButtonDef
       = desc.p_ButtonDef;
     wxString path = pButtonDef ? GOMidiObjectContext::getPath(
-                      pButtonDef->p_MidiContext, pButtonDef->name)
+                                   pButtonDef->p_MidiContext, pButtonDef->name)
                                : WX_EMPTY;
     GOConfigMidiObject *pObj = new GOConfigMidiObject(
       m_MidiMap,
@@ -728,6 +731,8 @@ void GOConfig::LoadDefaults() {
   MidiRecorderPath.SetDefaultValue(
     GOStdPath::GetGrandOrgueSubDir(_("MIDI recordings")));
   MidiPlayerPath.SetDefaultValue(
+    GOStdPath::GetGrandOrgueSubDir(_("MIDI recordings")));
+  MidiPlaylistPath.SetDefaultValue(
     GOStdPath::GetGrandOrgueSubDir(_("MIDI recordings")));
 }
 

@@ -177,7 +177,7 @@ public:
       unsigned max_value,
       unsigned default_value)
       : GOSettingUnsigned(
-        store, group, name, min_value, max_value, default_value) {}
+          store, group, name, min_value, max_value, default_value) {}
 
   } BitsPerSample;
 
@@ -205,6 +205,11 @@ public:
   // MIDIInputNumber mapping
   GOSettingEnum<MidiFileChannelMapping>
     MidiPlayerChannelMappingWithoutInputNumber;
+
+  // The folder shown in the MIDI playlist window
+  GOSettingDirectory MidiPlaylistPath;
+  // Whether the MIDI playlist goes on to the next file automatically
+  GOSettingBool MidiPlaylistAutoAdvance;
 
   GOSettingBool CheckForUpdatesAtStartup;
 

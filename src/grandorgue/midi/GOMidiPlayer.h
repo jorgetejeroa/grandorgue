@@ -11,6 +11,7 @@
 #include <wx/string.h>
 #include <wx/timer.h>
 
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -37,12 +38,18 @@ private:
   GOMidiSystem *p_midi;
   GOMidiPlayerContent m_content;
   GOLabelControl m_PlayingTime;
+  GOLabelControl m_TempoLabel;
   GOTime m_Start;
   unsigned m_PlayingSeconds;
+  // the time scale factor: 1 means the recorded tempo, 2 means half speed
   float m_Speed;
+  // the playing tempo in percent of the recorded tempo
+  unsigned m_TempoPercent;
   bool m_IsPlaying;
   bool m_Pause;
   unsigned m_DeviceID;
+  // called when a file has been played to its end (not on manual stop)
+  std::function<void()> m_OnFinished;
 
   void ButtonStateChanged(int id, bool newState) override;
 
@@ -61,6 +68,7 @@ private:
     const GOConfig::MidiChannelMappingChooser &chooseMapping);
 
   void UpdateDisplay();
+  void UpdateTempoDisplay();
 
   /**
    * Set the buttons and the display to the initial state
@@ -103,6 +111,27 @@ public:
   void Pause();
   void StopPlaying();
   bool IsPlaying();
+  bool IsPaused() const { return m_IsPlaying && m_Pause; }
+
+  static constexpr unsigned TEMPO_MIN = 25;
+  static constexpr unsigned TEMPO_MAX = 200;
+  static constexpr unsigned TEMPO_STEP = 5;
+
+  unsigned GetTempoPercent() const { return m_TempoPercent; }
+  /**
+   * Changes the playing tempo. May be called while playing: the playback
+   * continues from the current position with the new tempo.
+   * @param percent the tempo in percent of the recorded tempo
+   */
+  void SetTempoPercent(unsigned percent);
+
+  /**
+   * Sets a function to be called when a file has been played to its end.
+   * It is not called when the playing is stopped by the user.
+   */
+  void SetOnFinished(std::function<void()> onFinished) {
+    m_OnFinished = onFinished;
+  }
 
   void Load(GOConfigReader &cfg) override;
   GOEnclosure *GetEnclosure(const wxString &name, bool is_panel) override;

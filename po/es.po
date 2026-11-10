@@ -4365,3 +4365,92 @@ msgstr "}"
 #, c-format
 #~ msgid "unhandled exception: %s\n"
 #~ msgstr "excepción no manejada: %s\n"
+
+msgid "SLOWER"
+msgstr "MÁS LENTO"
+
+msgid "TEMPO 100%"
+msgstr "TEMPO 100%"
+
+msgid "FASTER"
+msgstr "MÁS RÁPIDO"
+
+msgid "MIDI player tempo"
+msgstr "Tempo del reproductor MIDI"
+
+#, c-format
+msgid "Tempo %u%%"
+msgstr "Tempo %u%%"
+
+msgid "Player tempo"
+msgstr "Tempo del reproductor"
+
+msgid "MIDI playlist"
+msgstr "Lista de reproducción MIDI"
+
+msgid "MIDI play&list..."
+msgstr "&Lista de reproducción MIDI..."
+
+msgid "Folder:"
+msgstr "Carpeta:"
+
+msgid "Change folder..."
+msgstr "Cambiar carpeta..."
+
+msgid "Refresh"
+msgstr "Actualizar"
+
+msgid "<< Previous"
+msgstr "<< Anterior"
+
+msgid "Play"
+msgstr "Reproducir"
+
+msgid "Pause"
+msgstr "Pausa"
+
+msgid "Stop playing"
+msgstr "Detener"
+
+msgid "Next >>"
+msgstr "Siguiente >>"
+
+msgid "Tempo:"
+msgstr "Tempo:"
+
+msgid "Normal tempo (100%)"
+msgstr "Tempo normal (100%)"
+
+msgid "Go on to the next piece automatically"
+msgstr "Pasar automáticamente a la siguiente pieza"
+
+msgid "Continue"
+msgstr "Continuar"
+
+msgid "No organ is loaded"
+msgstr "No hay ningún órgano cargado"
+
+msgid "There are no MIDI files in this folder"
+msgstr "No hay archivos MIDI en esta carpeta"
+
+msgid "Click on a piece to load it"
+msgstr "Haga clic en una pieza para cargarla"
+
+#, c-format
+msgid "Paused: %s"
+msgstr "En pausa: %s"
+
+#, c-format
+msgid "Playing: %s"
+msgstr "Sonando: %s"
+
+#, c-format
+msgid "Ready to play: %s"
+msgstr "Preparada: %s"
+
+#, c-format
+msgid "Next: %s"
+msgstr "Siguiente: %s"
+
+msgid "Choose the folder with the MIDI files"
+msgstr "Elija la carpeta con los archivos MIDI"

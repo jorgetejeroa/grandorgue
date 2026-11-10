@@ -31,6 +31,7 @@
 #include "gui/GOGuiApp.h"
 #include "gui/GOGuiOrgan.h"
 #include "gui/dialogs/GOMidiChannelMappingDialog.h"
+#include "gui/dialogs/GOMidiPlaylistDialog.h"
 #include "gui/dialogs/GONewReleaseDialog.h"
 #include "gui/dialogs/GOProgressDialog.h"
 #include "gui/dialogs/GOPropertiesDialog.h"
@@ -42,6 +43,7 @@
 #include "gui/wxcontrols/GOAudioGauge.h"
 #include "gui/wxcontrols/go_gui_utils.h"
 #include "loader/cache/GOCacheCleaner.h"
+#include "midi/GOMidiPlayer.h"
 #include "midi/GOMidiSystem.h"
 #include "midi/events/GOMidiEvent.h"
 #include "sound/GOSoundSystem.h"
@@ -107,6 +109,7 @@ EVT_MENU(ID_AUDIO_MEMSET, GOAppWindow::OnAudioMemset)
 EVT_MENU(ID_AUDIO_STATE, GOAppWindow::OnAudioState)
 EVT_MENU(ID_SETTINGS, GOAppWindow::OnSettings)
 EVT_MENU(ID_MIDI_LOAD, GOAppWindow::OnMidiLoad)
+EVT_MENU(ID_MIDI_PLAYLIST, GOAppWindow::OnMidiPlaylist)
 EVT_MENU(wxID_HELP, GOAppWindow::OnHelp)
 EVT_MENU(wxID_ABOUT, GOAppWindow::OnHelpAbout)
 EVT_COMMAND(0, wxEVT_WINTITLE, GOAppWindow::OnSetTitle)
@@ -275,6 +278,8 @@ GOAppWindow::GOAppWindow(
   m_audio_menu->AppendSeparator();
   m_audio_menu->Append(
     ID_MIDI_LOAD, _("Load &MIDI\tCtrl+P"), wxEmptyString, wxITEM_NORMAL);
+  m_audio_menu->Append(
+    ID_MIDI_PLAYLIST, _("MIDI play&list..."), wxEmptyString, wxITEM_NORMAL);
   m_audio_menu->Append(
     ID_MIDI_MONITOR, _("&Log MIDI events"), wxEmptyString, wxITEM_CHECK);
 
@@ -626,11 +631,11 @@ bool GOAppWindow::CloseOrgan(bool isForce) {
     if (p_OrganController && p_OrganController->IsOrganModified()) {
       int choice = isForce ? wxYES
                            : wxMessageBox(
-                             _("The organ settings have been modified\n"
-                               "Do you want to save them?"),
-                             _("Save organ settings"),
-                             wxYES_NO | wxCANCEL | wxCENTRE,
-                             this);
+                               _("The organ settings have been modified\n"
+                                 "Do you want to save them?"),
+                               _("Save organ settings"),
+                               wxYES_NO | wxCANCEL | wxCENTRE,
+                               this);
 
       switch (choice) {
       case wxYES:
@@ -1173,24 +1178,47 @@ void GOAppWindow::OnMidiLoad(wxCommandEvent &WXUNUSED(event)) {
     _("MID files (*.mid)|*.mid"),
     wxFD_OPEN | wxFD_FILE_MUST_EXIST);
   if (dlg.ShowModal() == wxID_OK) {
-    if (p_OrganController)
-      // asks the user which MIDI channel mapping to use, only called by
-      // GOOrganController/GOMidiPlayer when the loaded file actually needs
-      // one chosen; this is the only place allowed to own the GUI dialog
-      p_OrganController->LoadMIDIFile(
-        dlg.GetPath(),
-        [this](
-          bool isMidiInputNumberMappingUsable,
-          GOConfig::MidiFileChannelMapping defaultMapping)
-          -> std::optional<GOConfig::MidiFileChannelMapping> {
-          GOMidiChannelMappingDialog chooserDlg(
-            this, r_config, isMidiInputNumberMappingUsable, defaultMapping);
-
-          return chooserDlg.ShowModal() == wxID_OK
-            ? std::optional(chooserDlg.GetSelectedMapping())
-            : std::nullopt;
-        });
+    LoadMidiFile(dlg.GetPath(), nullptr);
+    if (m_MidiPlaylist)
+      m_MidiPlaylist->ForgetLoadedFile();
   }
+}
+
+GOMidiPlayer *GOAppWindow::GetMidiPlayer() {
+  return p_OrganController ? p_OrganController->GetMidiPlayer() : nullptr;
+}
+
+bool GOAppWindow::LoadMidiFile(
+  const wxString &path, std::function<void()> onFinished) {
+  GOMidiPlayer *player = GetMidiPlayer();
+
+  if (!player)
+    return false;
+  player->SetOnFinished(onFinished);
+  // asks the user which MIDI channel mapping to use, only called by
+  // GOOrganController/GOMidiPlayer when the loaded file actually needs
+  // one chosen; this is the only place allowed to own the GUI dialog
+  p_OrganController->LoadMIDIFile(
+    path,
+    [this](
+      bool isMidiInputNumberMappingUsable,
+      GOConfig::MidiFileChannelMapping defaultMapping)
+      -> std::optional<GOConfig::MidiFileChannelMapping> {
+      GOMidiChannelMappingDialog chooserDlg(
+        this, r_config, isMidiInputNumberMappingUsable, defaultMapping);
+
+      return chooserDlg.ShowModal() == wxID_OK
+        ? std::optional(chooserDlg.GetSelectedMapping())
+        : std::nullopt;
+    });
+  return player->IsLoaded();
+}
+
+void GOAppWindow::OnMidiPlaylist(wxCommandEvent &WXUNUSED(event)) {
+  if (!m_MidiPlaylist)
+    m_MidiPlaylist = new GOMidiPlaylistDialog(this, r_config, *this);
+  m_MidiPlaylist->Show();
+  m_MidiPlaylist->Raise();
 }
 
 void GOAppWindow::OnAudioMemset(wxCommandEvent &WXUNUSED(event)) {
