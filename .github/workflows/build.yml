@@ -86,6 +86,8 @@ jobs:
       shell: bash
       run: |
         git fetch --prune --unshallow --tags || true
+        # a fork may have no version tags: take them from the main repository
+        git fetch --tags https://github.com/GrandOrgue/grandorgue.git || true
         GIT_VERSION=`git describe --tags`
         PROJECT_VERSION=`echo $GIT_VERSION | cut -d- -f1`
         BUILD_VERSION=`echo $GIT_VERSION | cut -d- -f2-3 --output-delimiter=.`
