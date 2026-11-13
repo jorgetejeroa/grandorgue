@@ -166,6 +166,7 @@ midi/events/GOMidiShortcutPattern.cpp
 midi/events/GOMidiWxEvent.cpp
 midi/events/GORodgers.cpp
 midi/files/GOMidiFileReader.cpp
+midi/files/GOMidiFileTimeScaler.cpp
 midi/objects/GOMidiObject.cpp
 midi/objects/GOMidiObjectContext.cpp
 midi/objects/GOMidiObjectWithDivision.cpp

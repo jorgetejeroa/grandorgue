@@ -132,6 +132,10 @@ const GOMidiEvent &GOMidiPlayerContent::GetCurrentEvent() {
   return m_Events[m_Pos];
 }
 
+GOTime GOMidiPlayerContent::GetLength() const {
+  return m_Events.empty() ? GOTime(0) : m_Events.back().GetTime();
+}
+
 bool GOMidiPlayerContent::Next() {
   m_Pos++;
   return m_Pos < m_Events.size();

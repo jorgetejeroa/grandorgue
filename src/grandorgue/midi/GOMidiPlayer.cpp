@@ -9,6 +9,9 @@
 
 #include <wx/intl.h>
 
+#include <map>
+#include <utility>
+
 #include "config/GOConfig.h"
 #include "control/GOCallbackButtonControl.h"
 #include "midi/events/GOMidiEvent.h"
@@ -323,6 +326,92 @@ void GOMidiPlayer::HandleTimer() {
       return;
     }
   } while (true);
+}
+
+double GOMidiPlayer::GetPosition() const {
+  double positionMs = 0;
+
+  if (m_IsPlaying) {
+    // while paused, m_Start holds the elapsed real time (see Pause())
+    const double elapsedMs = m_Pause
+      ? m_Start.ToDouble()
+      : (wxGetLocalTimeMillis() - m_Start).ToDouble();
+
+    positionMs = elapsedMs / m_Speed;
+  }
+  return positionMs;
+}
+
+void GOMidiPlayer::SeekTo(double positionMs) {
+  if (IsLoaded()) {
+    // the held notes: (channel, key) -> velocity
+    std::map<std::pair<int, int>, int> heldNotes;
+    bool hasEvents = true;
+    GOTime now = wxGetLocalTimeMillis();
+
+    r_timer.DeleteTimer(this);
+    // silence the notes that are sounding now
+    for (unsigned channelN = 1; channelN <= 16; channelN++) {
+      GOMidiEvent e;
+
+      e.SetMidiType(GOMidiEvent::MIDI_CTRL_CHANGE);
+      e.SetChannel(channelN);
+      e.SetKey(MIDI_CTRL_NOTES_OFF);
+      e.SetValue(0);
+      e.SetDevice(m_DeviceID);
+      e.SetTime(now);
+      e.SetAllowedToReload(false);
+      PlayMidiEvent(e);
+    }
+
+    // send everything before the position except the notes
+    m_content.Reset();
+    while (hasEvents
+           && m_content.GetCurrentEvent().GetTime().ToDouble() < positionMs) {
+      GOMidiEvent e = m_content.GetCurrentEvent();
+
+      if (e.GetMidiType() == GOMidiEvent::MIDI_NOTE) {
+        const std::pair<int, int> note(e.GetChannel(), e.GetKey());
+
+        if (e.GetValue() > 0)
+          heldNotes[note] = e.GetValue();
+        else
+          heldNotes.erase(note);
+      } else {
+        e.SetDevice(m_DeviceID);
+        e.SetTime(now);
+        e.SetAllowedToReload(false);
+        PlayMidiEvent(e);
+      }
+      hasEvents = m_content.Next();
+    }
+
+    // start the notes that are held at the position
+    for (const auto &note : heldNotes) {
+      GOMidiEvent e;
+
+      e.SetMidiType(GOMidiEvent::MIDI_NOTE);
+      e.SetChannel(note.first.first);
+      e.SetKey(note.first.second);
+      e.SetValue(note.second);
+      e.SetDevice(m_DeviceID);
+      e.SetTime(now);
+      e.SetAllowedToReload(false);
+      PlayMidiEvent(e);
+    }
+
+    if (hasEvents) {
+      m_Start = now - (wxLongLong_t)(positionMs * m_Speed);
+      m_PlayingSeconds = (unsigned)(positionMs / 1000);
+      m_IsPlaying = true;
+      m_Pause = false;
+      m_buttons[ID_MIDI_PLAYER_PLAY]->Display(true);
+      m_buttons[ID_MIDI_PLAYER_PAUSE]->Display(false);
+      UpdateDisplay();
+      HandleTimer();
+    } else
+      StopPlaying();
+  }
 }
 
 void GOMidiPlayer::UpdateTempoDisplay() {

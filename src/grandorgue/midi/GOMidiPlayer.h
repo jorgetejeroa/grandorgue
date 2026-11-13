@@ -131,6 +131,25 @@ public:
    */
   void SetTempoPercent(unsigned percent);
 
+  /** @return the length of the loaded file in milliseconds (file time) */
+  GOTime GetLength() const { return m_content.GetLength(); }
+
+  /**
+   * @return the current playing position in milliseconds from the start of
+   *   the file (file time, independent of the tempo); 0 if not playing
+   */
+  double GetPosition() const;
+
+  /**
+   * Continues the playing from another position of the loaded file. All
+   * events before the position except the notes are sent at once, so the
+   * registration is the same as at that point of the recording, and the
+   * notes held at that point are started again. Starts playing if the
+   * player is stopped or paused.
+   * @param positionMs the position in milliseconds from the start of the file
+   */
+  void SeekTo(double positionMs);
+
   /**
    * Sets a function to be called when a file has been played to its end.
    * It is not called when the playing is stopped by the user.

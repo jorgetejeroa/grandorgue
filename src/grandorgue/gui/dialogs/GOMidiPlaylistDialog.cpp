@@ -14,12 +14,15 @@
 #include <wx/filename.h>
 #include <wx/intl.h>
 #include <wx/listbox.h>
+#include <wx/msgdlg.h>
 #include <wx/sizer.h>
+#include <wx/slider.h>
 #include <wx/stattext.h>
 #include <wx/weakref.h>
 
 #include "config/GOConfig.h"
 #include "midi/GOMidiPlayer.h"
+#include "midi/files/GOMidiFileTimeScaler.h"
 
 enum {
   ID_PLAYLIST_FOLDER = 200,
@@ -35,7 +38,12 @@ enum {
   ID_PLAYLIST_FASTER,
   ID_PLAYLIST_AUTO_ADVANCE,
   ID_PLAYLIST_TIMER,
+  ID_PLAYLIST_SAVE_TEMPO,
+  ID_PLAYLIST_TIMELINE,
 };
+
+// the timeline resolution
+static const int TIMELINE_STEPS = 1000;
 
 BEGIN_EVENT_TABLE(GOMidiPlaylistDialog, wxDialog)
 EVT_BUTTON(ID_PLAYLIST_FOLDER, GOMidiPlaylistDialog::OnChooseFolder)
@@ -52,6 +60,13 @@ EVT_BUTTON(ID_PLAYLIST_TEMPO_RESET, GOMidiPlaylistDialog::OnTempoReset)
 EVT_BUTTON(ID_PLAYLIST_FASTER, GOMidiPlaylistDialog::OnFaster)
 EVT_CHECKBOX(ID_PLAYLIST_AUTO_ADVANCE, GOMidiPlaylistDialog::OnAutoAdvance)
 EVT_TIMER(ID_PLAYLIST_TIMER, GOMidiPlaylistDialog::OnRefreshTimer)
+EVT_BUTTON(ID_PLAYLIST_SAVE_TEMPO, GOMidiPlaylistDialog::OnSaveTempo)
+EVT_COMMAND_SCROLL_THUMBTRACK(
+  ID_PLAYLIST_TIMELINE, GOMidiPlaylistDialog::OnTimelineTrack)
+EVT_COMMAND_SCROLL_THUMBRELEASE(
+  ID_PLAYLIST_TIMELINE, GOMidiPlaylistDialog::OnTimelineRelease)
+EVT_COMMAND_SCROLL_CHANGED(
+  ID_PLAYLIST_TIMELINE, GOMidiPlaylistDialog::OnTimelineRelease)
 EVT_CLOSE(GOMidiPlaylistDialog::OnClose)
 END_EVENT_TABLE()
 
@@ -70,6 +85,9 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
       wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
     r_config(config),
     r_host(host),
+    m_IsSeeking(false),
+    m_LastSeekValue(-1),
+    m_LastSeekMs(0),
     m_RefreshTimer(this, ID_PLAYLIST_TIMER) {
   wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -106,6 +124,29 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     nullptr,
     wxLB_SINGLE | wxLB_NEEDED_SB);
   topSizer->Add(m_List, 1, wxEXPAND | wxLEFT | wxRIGHT, 8);
+
+  // the timeline
+  wxBoxSizer *timelineSizer = new wxBoxSizer(wxHORIZONTAL);
+  m_Timeline = new wxSlider(
+    this,
+    ID_PLAYLIST_TIMELINE,
+    0,
+    0,
+    TIMELINE_STEPS,
+    wxDefaultPosition,
+    wxDefaultSize,
+    wxSL_HORIZONTAL);
+  m_Timeline->SetPageSize(TIMELINE_STEPS / 20);
+  m_TimeText = new wxStaticText(
+    this,
+    wxID_ANY,
+    wxT("0:00 / 0:00"),
+    wxDefaultPosition,
+    wxSize(110, -1),
+    wxALIGN_RIGHT | wxST_NO_AUTORESIZE);
+  timelineSizer->Add(m_Timeline, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+  timelineSizer->Add(m_TimeText, 0, wxALIGN_CENTER_VERTICAL);
+  topSizer->Add(timelineSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
   // the transport buttons
   wxBoxSizer *transportSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -149,7 +190,13 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     wxRIGHT,
     12);
   tempoSizer->Add(
-    new wxButton(this, ID_PLAYLIST_TEMPO_RESET, _("Normal tempo (100%)")));
+    new wxButton(this, ID_PLAYLIST_TEMPO_RESET, _("Normal tempo (100%)")),
+    0,
+    wxRIGHT,
+    12);
+  m_SaveTempoButton
+    = new wxButton(this, ID_PLAYLIST_SAVE_TEMPO, _("Save at this tempo"));
+  tempoSizer->Add(m_SaveTempoButton);
   topSizer->Add(tempoSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
   // the automatic advance switch
@@ -325,6 +372,135 @@ void GOMidiPlaylistDialog::UpdateState() {
   }
   if (m_StatusText->GetLabel() != status)
     m_StatusText->SetLabel(status);
+
+  m_SaveTempoButton->Enable(
+    player && !m_LoadedPath.IsEmpty() && !player->IsPlaying()
+    && player->GetTempoPercent() != 100);
+  UpdateTimeline();
+}
+
+wxString GOMidiPlaylistDialog::FormatTime(double fileTimeMs) const {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const unsigned tempo = pPlayer ? pPlayer->GetTempoPercent() : 100;
+  const unsigned seconds = (unsigned)(fileTimeMs * 100.0 / tempo / 1000.0);
+
+  return wxString::Format(wxT("%u:%02u"), seconds / 60, seconds % 60);
+}
+
+void GOMidiPlaylistDialog::UpdateTimeline() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const bool hasFile = pPlayer && !m_LoadedPath.IsEmpty();
+  const double lengthMs = hasFile ? pPlayer->GetLength().ToDouble() : 0;
+
+  m_Timeline->Enable(hasFile && lengthMs > 0);
+  if (!m_IsSeeking) {
+    const double positionMs = hasFile ? pPlayer->GetPosition() : 0;
+    const int value
+      = lengthMs > 0 ? (int)(positionMs / lengthMs * TIMELINE_STEPS) : 0;
+
+    if (m_Timeline->GetValue() != value)
+      m_Timeline->SetValue(value);
+
+    const wxString text = wxString::Format(
+      wxT("%s / %s"), FormatTime(positionMs), FormatTime(lengthMs));
+
+    if (m_TimeText->GetLabel() != text)
+      m_TimeText->SetLabel(text);
+  }
+}
+
+void GOMidiPlaylistDialog::SeekToTimeline() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const int value = m_Timeline->GetValue();
+  const long nowMs = wxGetLocalTimeMillis().ToLong();
+
+  // wx may report one movement twice (thumb release and changed)
+  if (
+    pPlayer && !m_LoadedPath.IsEmpty()
+    && !(value == m_LastSeekValue && nowMs - m_LastSeekMs < 500)) {
+    const double lengthMs = pPlayer->GetLength().ToDouble();
+
+    m_LastSeekValue = value;
+    m_LastSeekMs = nowMs;
+    pPlayer->SeekTo(lengthMs * value / TIMELINE_STEPS);
+  }
+  m_IsSeeking = false;
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::OnTimelineTrack(wxScrollEvent &event) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  // while dragging, only show the time of the thumb position
+  m_IsSeeking = true;
+  if (pPlayer) {
+    const double lengthMs = pPlayer->GetLength().ToDouble();
+
+    m_TimeText->SetLabel(wxString::Format(
+      wxT("%s / %s"),
+      FormatTime(lengthMs * m_Timeline->GetValue() / TIMELINE_STEPS),
+      FormatTime(lengthMs)));
+  }
+}
+
+void GOMidiPlaylistDialog::OnTimelineRelease(wxScrollEvent &event) {
+  SeekToTimeline();
+}
+
+void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer && !m_LoadedPath.IsEmpty()) {
+    const wxString path = m_LoadedPath;
+    const wxFileName fileName(path);
+    const unsigned tempo = pPlayer->GetTempoPercent();
+    const wxString backupDirName = _("Originals");
+    const wxString backupDir
+      = fileName.GetPath() + wxFileName::GetPathSeparator() + backupDirName;
+    const wxString backupPath
+      = backupDir + wxFileName::GetPathSeparator() + fileName.GetFullName();
+
+    if (
+      wxMessageBox(
+        wxString::Format(
+          _("The piece \"%s\" will be saved with the tempo %u%%.\n\n"
+            "A copy of the original file is kept in the subfolder \"%s\" "
+            "(only the first time, so it is always the original "
+            "recording).\n\nContinue?"),
+          fileName.GetName(),
+          tempo,
+          backupDirName),
+        _("Save at this tempo"),
+        wxYES_NO | wxICON_QUESTION,
+        this)
+      == wxYES) {
+      bool isOk = wxDirExists(backupDir) || wxMkdir(backupDir);
+
+      if (isOk && !wxFileExists(backupPath))
+        isOk = wxCopyFile(path, backupPath, false);
+      if (!isOk)
+        wxMessageBox(
+          wxString::Format(
+            _("Could not make the copy of the original file in \"%s\". "
+              "Nothing has been changed."),
+            backupDir),
+          _("Save at this tempo"),
+          wxOK | wxICON_ERROR,
+          this);
+      else if (!GOMidiFileTimeScaler::scaleFile(path, path, 100.0 / tempo))
+        wxMessageBox(
+          _("Could not save the piece. The file has not been changed."),
+          _("Save at this tempo"),
+          wxOK | wxICON_ERROR,
+          this);
+      else {
+        // the file now has the new tempo: play it at 100% from now on
+        pPlayer->SetTempoPercent(100);
+        LoadIndex(m_Files.Index(path));
+      }
+    }
+  }
+  UpdateState();
 }
 
 void GOMidiPlaylistDialog::ForgetLoadedFile() {

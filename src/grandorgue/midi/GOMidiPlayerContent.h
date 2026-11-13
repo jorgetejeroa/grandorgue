@@ -14,6 +14,8 @@
 
 #include "config/GOConfig.h"
 
+#include "GOTime.h"
+
 class GOMidiEvent;
 class GOMidiMap;
 
@@ -87,6 +89,9 @@ public:
 
   const GOMidiEvent &GetCurrentEvent();
   bool Next();
+
+  /** @return the time of the last event in milliseconds from the start */
+  GOTime GetLength() const;
 };
 
 #endif

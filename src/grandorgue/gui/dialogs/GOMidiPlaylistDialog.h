@@ -19,6 +19,8 @@ class GOMidiPlayer;
 class wxButton;
 class wxCheckBox;
 class wxListBox;
+class wxScrollEvent;
+class wxSlider;
 class wxStaticText;
 
 /**
@@ -64,6 +66,14 @@ private:
   wxButton *m_PauseButton;
   wxButton *m_StopButton;
   wxButton *m_NextButton;
+  wxSlider *m_Timeline;
+  wxStaticText *m_TimeText;
+  wxButton *m_SaveTempoButton;
+  // whether the user is dragging the timeline thumb now
+  bool m_IsSeeking;
+  // the last position sent to the player, against double seeking
+  int m_LastSeekValue;
+  long m_LastSeekMs;
   wxStaticText *m_TempoText;
   wxCheckBox *m_AutoAdvance;
   wxStaticText *m_StatusText;
@@ -80,6 +90,10 @@ private:
   void OnFileFinished();
   void ChangeTempo(int delta);
   void UpdateState();
+  void UpdateTimeline();
+  void SeekToTimeline();
+  /** @return the real duration at the current tempo as m:ss */
+  wxString FormatTime(double fileTimeMs) const;
 
   void OnChooseFolder(wxCommandEvent &event);
   void OnRefreshList(wxCommandEvent &event);
@@ -94,6 +108,9 @@ private:
   void OnTempoReset(wxCommandEvent &event);
   void OnFaster(wxCommandEvent &event);
   void OnAutoAdvance(wxCommandEvent &event);
+  void OnSaveTempo(wxCommandEvent &event);
+  void OnTimelineTrack(wxScrollEvent &event);
+  void OnTimelineRelease(wxScrollEvent &event);
   void OnRefreshTimer(wxTimerEvent &event);
   void OnClose(wxCloseEvent &event);
 

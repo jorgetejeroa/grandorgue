@@ -4454,3 +4454,34 @@ msgstr "Siguiente: %s"
 
 msgid "Choose the folder with the MIDI files"
 msgstr "Elija la carpeta con los archivos MIDI"
+
+msgid "Save at this tempo"
+msgstr "Guardar con este tempo"
+
+msgid "Originals"
+msgstr "Originales"
+
+#, c-format
+msgid ""
+"The piece \"%s\" will be saved with the tempo %u%%.\n"
+"\n"
+"A copy of the original file is kept in the subfolder \"%s\" (only the first time, so it is always the original recording).\n"
+"\n"
+"Continue?"
+msgstr ""
+"La pieza \"%s\" se guardará con el tempo %u%%.\n"
+"\n"
+"Se guarda una copia del archivo original en la subcarpeta \"%s\" (solo la primera vez, así que siempre es la grabación original).\n"
+"\n"
+"¿Continuar?"
+
+#, c-format
+msgid ""
+"Could not make the copy of the original file in \"%s\". Nothing has been "
+"changed."
+msgstr ""
+"No se ha podido hacer la copia del archivo original en \"%s\". No se ha "
+"modificado nada."
+
+msgid "Could not save the piece. The file has not been changed."
+msgstr "No se ha podido guardar la pieza. El archivo no se ha modificado."
