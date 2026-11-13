@@ -7,6 +7,8 @@
 
 #include "GOMidiPlaylistDialog.h"
 
+#include <cmath>
+
 #include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/dir.h>
@@ -40,7 +42,16 @@ enum {
   ID_PLAYLIST_TIMER,
   ID_PLAYLIST_SAVE_TEMPO,
   ID_PLAYLIST_TIMELINE,
+  ID_PLAYLIST_FADE_OUT,
+  ID_PLAYLIST_FADE_TIMER,
 };
+
+// the fade out: the volume goes down by FADE_DEPTH_DB in FADE_DURATION_MS,
+// then the piece is stopped and the volume is restored after FADE_RELEASE_MS
+static const int FADE_STEP_MS = 50;
+static const double FADE_DURATION_MS = 5000;
+static const double FADE_DEPTH_DB = 40;
+static const double FADE_RELEASE_MS = 3000;
 
 // the timeline resolution
 static const int TIMELINE_STEPS = 1000;
@@ -61,6 +72,8 @@ EVT_BUTTON(ID_PLAYLIST_FASTER, GOMidiPlaylistDialog::OnFaster)
 EVT_CHECKBOX(ID_PLAYLIST_AUTO_ADVANCE, GOMidiPlaylistDialog::OnAutoAdvance)
 EVT_TIMER(ID_PLAYLIST_TIMER, GOMidiPlaylistDialog::OnRefreshTimer)
 EVT_BUTTON(ID_PLAYLIST_SAVE_TEMPO, GOMidiPlaylistDialog::OnSaveTempo)
+EVT_BUTTON(ID_PLAYLIST_FADE_OUT, GOMidiPlaylistDialog::OnFadeOut)
+EVT_TIMER(ID_PLAYLIST_FADE_TIMER, GOMidiPlaylistDialog::OnFadeTimer)
 EVT_COMMAND_SCROLL_THUMBTRACK(
   ID_PLAYLIST_TIMELINE, GOMidiPlaylistDialog::OnTimelineTrack)
 EVT_COMMAND_SCROLL_THUMBRELEASE(
@@ -88,6 +101,11 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     m_IsSeeking(false),
     m_LastSeekValue(-1),
     m_LastSeekMs(0),
+    m_IsFading(false),
+    m_HasFadeStopped(false),
+    m_FadeStartGain(0),
+    m_FadeStart(0),
+    m_FadeTimer(this, ID_PLAYLIST_FADE_TIMER),
     m_RefreshTimer(this, ID_PLAYLIST_TIMER) {
   wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
 
@@ -155,10 +173,12 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
   m_PauseButton = new wxButton(this, ID_PLAYLIST_PAUSE, _("Pause"));
   m_StopButton = new wxButton(this, ID_PLAYLIST_STOP, _("Stop playing"));
   m_NextButton = new wxButton(this, ID_PLAYLIST_NEXT, _("Next >>"));
+  m_FadeOutButton = new wxButton(this, ID_PLAYLIST_FADE_OUT, _("Fade out"));
   transportSizer->Add(m_PrevButton, 1, wxRIGHT, 4);
   transportSizer->Add(m_PlayButton, 1, wxRIGHT, 4);
   transportSizer->Add(m_PauseButton, 1, wxRIGHT, 4);
   transportSizer->Add(m_StopButton, 1, wxRIGHT, 4);
+  transportSizer->Add(m_FadeOutButton, 1, wxRIGHT, 4);
   transportSizer->Add(m_NextButton, 1);
   topSizer->Add(transportSizer, 0, wxEXPAND | wxALL, 8);
 
@@ -220,7 +240,10 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
   UpdateState();
 }
 
-GOMidiPlaylistDialog::~GOMidiPlaylistDialog() { m_RefreshTimer.Stop(); }
+GOMidiPlaylistDialog::~GOMidiPlaylistDialog() {
+  m_RefreshTimer.Stop();
+  m_FadeTimer.Stop();
+}
 
 void GOMidiPlaylistDialog::FillList() {
   const wxString folder = r_config.MidiPlaylistPath();
@@ -306,7 +329,8 @@ void GOMidiPlaylistDialog::OnFileFinished() {
     next = selected;
 
   if (next != wxNOT_FOUND && next < (int)m_Files.GetCount()) {
-    if (m_AutoAdvance->GetValue())
+    // no automatic start while the music is being faded out
+    if (m_AutoAdvance->GetValue() && !m_IsFading)
       PlayIndex(next);
     else
       // prepare the next piece so that only Play has to be pressed
@@ -344,6 +368,8 @@ void GOMidiPlaylistDialog::UpdateState() {
   m_PauseButton->SetLabel(
     player && player->IsPaused() ? _("Continue") : _("Pause"));
   m_StopButton->Enable(player && player->IsPlaying());
+  m_FadeOutButton->Enable(
+    player && player->IsPlaying() && !player->IsPaused() && !m_IsFading);
 
   m_TempoText->SetLabel(
     wxString::Format(wxT("%u%%"), player ? player->GetTempoPercent() : 100u));
@@ -422,7 +448,7 @@ void GOMidiPlaylistDialog::SeekToTimeline() {
 
     m_LastSeekValue = value;
     m_LastSeekMs = nowMs;
-    pPlayer->SeekTo(lengthMs * value / TIMELINE_STEPS);
+    SeekTo(lengthMs * value / TIMELINE_STEPS);
   }
   m_IsSeeking = false;
   UpdateState();
@@ -524,91 +550,193 @@ void GOMidiPlaylistDialog::OnChooseFolder(wxCommandEvent &event) {
 }
 
 void GOMidiPlaylistDialog::OnRefreshList(wxCommandEvent &event) {
-  FillList();
-  UpdateState();
+  RefreshList();
 }
 
-void GOMidiPlaylistDialog::OnListSelect(wxCommandEvent &event) {
-  const int index = m_List->GetSelection();
+void GOMidiPlaylistDialog::SelectPiece(int index) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const bool isValid = index >= 0 && index < (int)m_Files.GetCount();
 
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
-
+  if (isValid)
+    m_List->SetSelection(index);
   // While a piece is playing, a click only selects the next piece, so that
   // an accidental click does not interrupt the music. The selected piece is
   // played when Play is pressed or when the current piece has finished.
   if (
-    index != wxNOT_FOUND && !IsLoadedByMe(m_Files[index])
-    && !(player && player->IsPlaying()))
+    isValid && !IsLoadedByMe(m_Files[index])
+    && !(pPlayer && pPlayer->IsPlaying()))
     LoadIndex(index);
   UpdateState();
+}
+
+void GOMidiPlaylistDialog::PlayPiece(int index) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  CancelFadeOut();
+  // a double click on the playing piece starts it again
+  if (pPlayer && pPlayer->IsPlaying())
+    pPlayer->StopPlaying();
+  PlayIndex(index);
+}
+
+void GOMidiPlaylistDialog::PlayOrContinue() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  CancelFadeOut();
+  if (pPlayer && pPlayer->IsPaused() && IsLoadedByMe(GetSelectedPath()))
+    pPlayer->Pause(); // continue playing
+  else if (!(pPlayer && pPlayer->IsPlaying()
+             && IsLoadedByMe(GetSelectedPath())))
+    PlayIndex(m_List->GetSelection());
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::TogglePause() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer)
+    pPlayer->Pause();
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::Stop() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer)
+    pPlayer->StopPlaying();
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::GoToPiece(int index) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const bool wasPlaying = pPlayer && pPlayer->IsPlaying();
+
+  if (index >= 0 && index < (int)m_Files.GetCount()) {
+    CancelFadeOut();
+    if (wasPlaying) {
+      pPlayer->StopPlaying();
+      PlayIndex(index);
+    } else
+      LoadIndex(index);
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::Previous() { GoToPiece(m_List->GetSelection() - 1); }
+
+void GOMidiPlaylistDialog::Next() { GoToPiece(m_List->GetSelection() + 1); }
+
+void GOMidiPlaylistDialog::ResetTempo() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer)
+    pPlayer->SetTempoPercent(100);
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::SeekTo(double positionMs) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer && !m_LoadedPath.IsEmpty()) {
+    CancelFadeOut();
+    pPlayer->SeekTo(positionMs);
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::SetAutoAdvance(bool isAutoAdvance) {
+  m_AutoAdvance->SetValue(isAutoAdvance);
+  r_config.MidiPlaylistAutoAdvance(isAutoAdvance);
+  r_config.Flush();
+}
+
+void GOMidiPlaylistDialog::RefreshList() {
+  FillList();
+  UpdateState();
+}
+
+int GOMidiPlaylistDialog::GetSelectedIndex() const {
+  return m_List->GetSelection();
+}
+
+int GOMidiPlaylistDialog::GetLoadedIndex() const {
+  return m_LoadedPath.IsEmpty() ? wxNOT_FOUND : m_Files.Index(m_LoadedPath);
+}
+
+bool GOMidiPlaylistDialog::IsAutoAdvance() const {
+  return m_AutoAdvance->GetValue();
+}
+
+void GOMidiPlaylistDialog::FadeOut() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (!m_IsFading && pPlayer && pPlayer->IsPlaying() && !pPlayer->IsPaused()) {
+    m_IsFading = true;
+    m_HasFadeStopped = false;
+    m_FadeStartGain = r_host.GetGain();
+    m_FadeStart = wxGetLocalTimeMillis();
+    m_FadeTimer.Start(FADE_STEP_MS);
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::CancelFadeOut() {
+  if (m_IsFading) {
+    m_FadeTimer.Stop();
+    r_host.SetGain(m_FadeStartGain);
+    m_IsFading = false;
+  }
+}
+
+void GOMidiPlaylistDialog::OnFadeTimer(wxTimerEvent &event) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const double elapsedMs = (wxGetLocalTimeMillis() - m_FadeStart).ToDouble();
+
+  if (!m_HasFadeStopped) {
+    if (!pPlayer || !pPlayer->IsPlaying() || elapsedMs >= FADE_DURATION_MS) {
+      // the volume is low now: stop the piece and let the release of the
+      // pipes and the reverb die away before restoring the volume
+      if (pPlayer && pPlayer->IsPlaying())
+        pPlayer->StopPlaying();
+      m_HasFadeStopped = true;
+      m_FadeStart = wxGetLocalTimeMillis();
+    } else
+      r_host.SetGain(
+        m_FadeStartGain
+        - (int)lround(FADE_DEPTH_DB * elapsedMs / FADE_DURATION_MS));
+  } else if (elapsedMs >= FADE_RELEASE_MS) {
+    m_FadeTimer.Stop();
+    r_host.SetGain(m_FadeStartGain);
+    m_IsFading = false;
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::OnListSelect(wxCommandEvent &event) {
+  SelectPiece(m_List->GetSelection());
 }
 
 void GOMidiPlaylistDialog::OnListDoubleClick(wxCommandEvent &event) {
-  PlayIndex(m_List->GetSelection());
+  PlayPiece(m_List->GetSelection());
 }
 
-void GOMidiPlaylistDialog::OnPrev(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
-  const bool wasPlaying = player && player->IsPlaying();
-  const int index = m_List->GetSelection() - 1;
+void GOMidiPlaylistDialog::OnPrev(wxCommandEvent &event) { Previous(); }
 
-  if (player && wasPlaying)
-    player->StopPlaying();
-  if (wasPlaying)
-    PlayIndex(index);
-  else
-    LoadIndex(index);
-}
+void GOMidiPlaylistDialog::OnPlay(wxCommandEvent &event) { PlayOrContinue(); }
 
-void GOMidiPlaylistDialog::OnPlay(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
+void GOMidiPlaylistDialog::OnPause(wxCommandEvent &event) { TogglePause(); }
 
-  if (player && player->IsPaused() && IsLoadedByMe(GetSelectedPath()))
-    player->Pause(); // continue playing
-  else
-    PlayIndex(m_List->GetSelection());
-}
+void GOMidiPlaylistDialog::OnStop(wxCommandEvent &event) { Stop(); }
 
-void GOMidiPlaylistDialog::OnPause(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
+void GOMidiPlaylistDialog::OnFadeOut(wxCommandEvent &event) { FadeOut(); }
 
-  if (player)
-    player->Pause();
-  UpdateState();
-}
-
-void GOMidiPlaylistDialog::OnStop(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
-
-  if (player)
-    player->StopPlaying();
-  UpdateState();
-}
-
-void GOMidiPlaylistDialog::OnNext(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
-  const bool wasPlaying = player && player->IsPlaying();
-  const int index = m_List->GetSelection() + 1;
-
-  if (player && wasPlaying)
-    player->StopPlaying();
-  if (wasPlaying)
-    PlayIndex(index);
-  else
-    LoadIndex(index);
-}
+void GOMidiPlaylistDialog::OnNext(wxCommandEvent &event) { Next(); }
 
 void GOMidiPlaylistDialog::OnSlower(wxCommandEvent &event) {
   ChangeTempo(-(int)GOMidiPlayer::TEMPO_STEP);
 }
 
-void GOMidiPlaylistDialog::OnTempoReset(wxCommandEvent &event) {
-  GOMidiPlayer *player = r_host.GetMidiPlayer();
-
-  if (player)
-    player->SetTempoPercent(100);
-  UpdateState();
-}
+void GOMidiPlaylistDialog::OnTempoReset(wxCommandEvent &event) { ResetTempo(); }
 
 void GOMidiPlaylistDialog::OnFaster(wxCommandEvent &event) {
   ChangeTempo(GOMidiPlayer::TEMPO_STEP);

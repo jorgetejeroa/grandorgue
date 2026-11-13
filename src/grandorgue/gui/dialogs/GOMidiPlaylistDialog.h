@@ -55,6 +55,16 @@ public:
     virtual bool LoadMidiFile(
       const wxString &path, std::function<void()> onFinished)
       = 0;
+
+    /** @return the current organ gain in dB, used for fading out */
+    virtual int GetGain() = 0;
+
+    /**
+     * Sets the organ gain without changing the volume setting, used for
+     * fading out
+     * @param gain the gain in dB
+     */
+    virtual void SetGain(int gain) = 0;
   };
 
 private:
@@ -68,6 +78,7 @@ private:
   wxButton *m_PauseButton;
   wxButton *m_StopButton;
   wxButton *m_NextButton;
+  wxButton *m_FadeOutButton;
   wxSlider *m_Timeline;
   wxStaticText *m_TimeText;
   wxButton *m_SaveTempoButton;
@@ -77,6 +88,12 @@ private:
   int m_LastSeekValue;
   // milliseconds since 1970 do not fit into a 32 bit long (Windows)
   GOTime m_LastSeekMs;
+  // the fade out state
+  bool m_IsFading;
+  bool m_HasFadeStopped; // the piece is stopped, waiting for the release
+  int m_FadeStartGain;
+  GOTime m_FadeStart;
+  wxTimer m_FadeTimer;
   wxStaticText *m_TempoText;
   wxCheckBox *m_AutoAdvance;
   wxStaticText *m_StatusText;
@@ -91,7 +108,8 @@ private:
   bool LoadIndex(int index);
   void PlayIndex(int index);
   void OnFileFinished();
-  void ChangeTempo(int delta);
+  void GoToPiece(int index);
+  void CancelFadeOut();
   void UpdateState();
   void UpdateTimeline();
   void SeekToTimeline();
@@ -106,6 +124,8 @@ private:
   void OnPlay(wxCommandEvent &event);
   void OnPause(wxCommandEvent &event);
   void OnStop(wxCommandEvent &event);
+  void OnFadeOut(wxCommandEvent &event);
+  void OnFadeTimer(wxTimerEvent &event);
   void OnNext(wxCommandEvent &event);
   void OnSlower(wxCommandEvent &event);
   void OnTempoReset(wxCommandEvent &event);
@@ -128,6 +148,48 @@ public:
    * playlist no longer owns the player content
    */
   void ForgetLoadedFile();
+
+  // The commands of the buttons, also used by the remote control
+
+  /** Selects a piece: loads it if nothing is playing (a click) */
+  void SelectPiece(int index);
+  /** Plays a piece from the start (a double click) */
+  void PlayPiece(int index);
+  /** Plays the selected piece or continues it if paused */
+  void PlayOrContinue();
+  void TogglePause();
+  void Stop();
+  /** Goes to the previous piece, playing it if a piece is playing now */
+  void Previous();
+  /** Goes to the next piece, playing it if a piece is playing now */
+  void Next();
+  /**
+   * Changes the tempo of the player
+   * @param delta the change in percent
+   */
+  void ChangeTempo(int delta);
+  void ResetTempo();
+  /**
+   * Continues the playing from another position of the loaded piece
+   * @param positionMs the position from the start of the file
+   */
+  void SeekTo(double positionMs);
+  void SetAutoAdvance(bool isAutoAdvance);
+  /** Reads the folder again */
+  void RefreshList();
+  /**
+   * Lowers the volume gradually, stops the piece and restores the volume
+   * after the sound has died away
+   */
+  void FadeOut();
+
+  /** @return the full paths of the pieces in the order of the list */
+  const wxArrayString &GetFiles() const { return m_Files; }
+  int GetSelectedIndex() const;
+  /** @return the index of the piece in the player or wxNOT_FOUND */
+  int GetLoadedIndex() const;
+  bool IsAutoAdvance() const;
+  bool IsFading() const { return m_IsFading; }
 
   DECLARE_EVENT_TABLE()
 };

@@ -382,6 +382,9 @@ GOConfig::GOConfig(
     MidiPlaylistPath(this, GENERAL, wxT("MIDIPlaylistPath"), wxEmptyString),
     MidiPlaylistAutoAdvance(
       this, GENERAL, wxT("MIDIPlaylistAutoAdvance"), false),
+    RemoteEnabled(this, GENERAL, wxT("RemoteEnabled"), false),
+    RemotePort(this, GENERAL, wxT("RemotePort"), 1024, 65535, 8080),
+    RemotePin(this, GENERAL, wxT("RemotePin"), wxEmptyString),
     CheckForUpdatesAtStartup(
       this, GENERAL, wxT("CheckForUpdatesAtStartup"), true),
     m_MidiIn(MIDI_IN),

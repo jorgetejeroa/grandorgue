@@ -97,6 +97,10 @@ gui/dialogs/settings/GOSettingsReverb.cpp
 gui/dialogs/settings/GOSettingsTemperaments.cpp
 gui/dialogs/GOMidiChannelMappingDialog.cpp
 gui/dialogs/GOMidiPlaylistDialog.cpp
+gui/dialogs/GORemoteDialog.cpp
+remote/GORemotePage.cpp
+remote/GORemoteController.cpp
+remote/GORemoteServer.cpp
 gui/dialogs/GOMidiObjectsDialog.cpp
 gui/dialogs/GONewReleaseDialog.cpp
 gui/dialogs/GOProgressDialog.cpp
@@ -276,6 +280,10 @@ set(go_libs ${wxWidgets_LIBRARIES} ${YAML_CPP_LIBRARIES} ${RT_LIBRARIES} ${PORTA
 set(go_libdir ${wxWidgets_LIBRARY_DIRS} ${RT_LIBDIR} ${PORTAUDIO_LIBDIR} ${FFTW_LIBDIR})
 target_include_directories(golib PUBLIC ${YAML_CPP_INCLUDE_DIRS})
 target_link_libraries(golib GrandOrgueImages GrandOrgueCore ${go_libs})
+if (WIN32)
+  # the remote control web server (cpp-httplib) uses Winsock
+  target_link_libraries(golib ws2_32)
+endif ()
 link_directories(${go_libdir})
 
 if (WIN32)

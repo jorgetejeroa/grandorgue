@@ -210,6 +210,10 @@ public:
   GOSettingDirectory MidiPlaylistPath;
   // Whether the MIDI playlist goes on to the next file automatically
   GOSettingBool MidiPlaylistAutoAdvance;
+  // The remote control web server
+  GOSettingBool RemoteEnabled;
+  GOSettingUnsigned RemotePort;
+  GOSettingString RemotePin;
 
   GOSettingBool CheckForUpdatesAtStartup;
 

@@ -19,6 +19,7 @@
 #include "midi/GOMidiListener.h"
 #include "midi/events/GOMidiCallback.h"
 #include "modification/GOModificationListener.h"
+#include "remote/GORemoteController.h"
 #include "sound/interfaces/GOSoundCloseListener.h"
 #include "threading/GOMutex.h"
 #include "updater/GOUpdateChecker.h"
@@ -32,6 +33,7 @@ class GOMidiSystem;
 class GOOrgan;
 class GOOrganController;
 class GOProgressDialog;
+class GORemoteServer;
 class GOSoundSystem;
 class wxChoice;
 class wxMsgBoxEvent;
@@ -46,7 +48,8 @@ class GOAppWindow : public wxFrame,
                     protected GOMidiCallback,
                     private GOModificationListener,
                     private GOSoundCloseListener,
-                    private GOMidiPlaylistDialog::Host {
+                    private GOMidiPlaylistDialog::Host,
+                    private GORemoteController::Host {
 private:
   GOGuiApp &r_app;
   GOConfig &r_config;
@@ -56,6 +59,10 @@ private:
   GOMutex m_mutex;
 
   GOMidiPlaylistDialog *m_MidiPlaylist = nullptr;
+  GORemoteController m_RemoteController{*this};
+  std::unique_ptr<GORemoteServer> o_RemoteServer;
+  // the reason why the server could not start, empty if no problem
+  wxString m_RemoteError;
 
   wxMenu *m_file_menu;
   wxMenu *m_audio_menu;
@@ -169,11 +176,27 @@ private:
   void OnSettings(wxCommandEvent &event);
   void OnMidiLoad(wxCommandEvent &event);
   void OnMidiPlaylist(wxCommandEvent &event);
+  void OnRemote(wxCommandEvent &event);
+
+  /** Starts or stops the remote control server according to the settings */
+  void EnsureRemoteServerState();
+  /** Handles a remote control request in the main thread */
+  std::string HandleRemoteRequest(
+    const std::string &action,
+    const std::map<std::string, std::string> &params);
+
+  // GORemoteController::Host
+  GOOrganController *GetOrganController() override { return p_OrganController; }
+  GOMidiPlaylistDialog &EnsureMidiPlaylist() override;
+  int GetVolume() override;
+  void SetVolume(int volume) override;
 
   // GOMidiPlaylistDialog::Host
   GOMidiPlayer *GetMidiPlayer() override;
   bool LoadMidiFile(
     const wxString &path, std::function<void()> onFinished) override;
+  int GetGain() override;
+  void SetGain(int gain) override;
   void OnMidiMonitor(wxCommandEvent &event);
 
   void OnPreset(wxCommandEvent &event);

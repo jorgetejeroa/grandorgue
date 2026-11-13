@@ -35,6 +35,7 @@
 #include "gui/dialogs/GONewReleaseDialog.h"
 #include "gui/dialogs/GOProgressDialog.h"
 #include "gui/dialogs/GOPropertiesDialog.h"
+#include "gui/dialogs/GORemoteDialog.h"
 #include "gui/dialogs/GOSelectOrganDialog.h"
 #include "gui/dialogs/GOSplash.h"
 #include "gui/dialogs/settings/GOSettingsDialog.h"
@@ -46,6 +47,7 @@
 #include "midi/GOMidiPlayer.h"
 #include "midi/GOMidiSystem.h"
 #include "midi/events/GOMidiEvent.h"
+#include "remote/GORemoteServer.h"
 #include "sound/GOSoundSystem.h"
 #include "temperaments/GOTemperament.h"
 #include "threading/GOMutexLocker.h"
@@ -110,6 +112,7 @@ EVT_MENU(ID_AUDIO_STATE, GOAppWindow::OnAudioState)
 EVT_MENU(ID_SETTINGS, GOAppWindow::OnSettings)
 EVT_MENU(ID_MIDI_LOAD, GOAppWindow::OnMidiLoad)
 EVT_MENU(ID_MIDI_PLAYLIST, GOAppWindow::OnMidiPlaylist)
+EVT_MENU(ID_REMOTE, GOAppWindow::OnRemote)
 EVT_MENU(wxID_HELP, GOAppWindow::OnHelp)
 EVT_MENU(wxID_ABOUT, GOAppWindow::OnHelpAbout)
 EVT_COMMAND(0, wxEVT_WINTITLE, GOAppWindow::OnSetTitle)
@@ -281,6 +284,8 @@ GOAppWindow::GOAppWindow(
   m_audio_menu->Append(
     ID_MIDI_PLAYLIST, _("MIDI play&list..."), wxEmptyString, wxITEM_NORMAL);
   m_audio_menu->Append(
+    ID_REMOTE, _("&Remote control..."), wxEmptyString, wxITEM_NORMAL);
+  m_audio_menu->Append(
     ID_MIDI_MONITOR, _("&Log MIDI events"), wxEmptyString, wxITEM_CHECK);
 
   wxMenu *help_menu = new wxMenu;
@@ -419,6 +424,9 @@ GOAppWindow::GOAppWindow(
 }
 
 GOAppWindow::~GOAppWindow() {
+  // no remote request may reach the window while it is being destroyed
+  if (o_RemoteServer)
+    o_RemoteServer->Stop();
   m_isMeterReady = false;
   m_listener.SetCallback(NULL);
   r_SoundSystem.SetCloseListener(nullptr);
@@ -538,6 +546,7 @@ void GOAppWindow::Init(const wxString &filename, bool isGuiOnly) {
 
   m_IsGuiOnly = isGuiOnly;
   Show(true);
+  EnsureRemoteServerState();
 
   SettingsReasons settingsReasons;
 
@@ -873,7 +882,7 @@ void GOAppWindow::OnUpdateLoaded(wxUpdateUIEvent &event) {
     event.Enable(p_OrganController && p_OrganController->CachePresent());
   else if (event.GetId() == ID_FILE_CACHE)
     event.Enable(p_OrganController && p_OrganController->IsCacheable());
-  else if (event.GetId() == ID_MIDI_MONITOR)
+  else if (event.GetId() == ID_MIDI_MONITOR || event.GetId() == ID_REMOTE)
     event.Enable(true);
   else
     event.Enable(
@@ -1214,11 +1223,95 @@ bool GOAppWindow::LoadMidiFile(
   return player->IsLoaded();
 }
 
-void GOAppWindow::OnMidiPlaylist(wxCommandEvent &WXUNUSED(event)) {
+int GOAppWindow::GetGain() {
+  return p_OrganController ? p_OrganController->GetGain() : 0;
+}
+
+void GOAppWindow::SetGain(int gain) {
+  if (p_OrganController)
+    p_OrganController->SetGain(gain);
+}
+
+GOMidiPlaylistDialog &GOAppWindow::EnsureMidiPlaylist() {
   if (!m_MidiPlaylist)
     m_MidiPlaylist = new GOMidiPlaylistDialog(this, r_config, *this);
-  m_MidiPlaylist->Show();
-  m_MidiPlaylist->Raise();
+  return *m_MidiPlaylist;
+}
+
+void GOAppWindow::OnMidiPlaylist(wxCommandEvent &WXUNUSED(event)) {
+  GOMidiPlaylistDialog &playlist = EnsureMidiPlaylist();
+
+  playlist.Show();
+  playlist.Raise();
+}
+
+int GOAppWindow::GetVolume() { return m_Volume->GetValue(); }
+
+void GOAppWindow::SetVolume(int volume) {
+  m_Volume->SetValue(volume);
+  if (p_OrganController)
+    p_OrganController->SetGain(volume);
+  for (auto pGauge : m_VolumeGauge)
+    pGauge->ResetClip();
+}
+
+std::string GOAppWindow::HandleRemoteRequest(
+  const std::string &action, const std::map<std::string, std::string> &params) {
+  return m_RemoteController.Handle(action, params);
+}
+
+void GOAppWindow::EnsureRemoteServerState() {
+  const bool isWanted
+    = r_config.RemoteEnabled() && r_config.RemotePin().Length() >= 4;
+
+  if (o_RemoteServer)
+    o_RemoteServer->Stop();
+  m_RemoteError = wxEmptyString;
+  if (isWanted) {
+    if (!o_RemoteServer)
+      o_RemoteServer = std::make_unique<GORemoteServer>(
+        *this,
+        [this](
+          const std::string &action,
+          const std::map<std::string, std::string> &params) {
+          return HandleRemoteRequest(action, params);
+        });
+    if (!o_RemoteServer->Start(r_config.RemotePort(), r_config.RemotePin())) {
+      m_RemoteError = wxString::Format(
+        _("The remote control could not use the port %u. Another program may "
+          "be using it: choose another port."),
+        (unsigned)r_config.RemotePort());
+      wxLogError(wxT("%s"), m_RemoteError);
+    }
+  }
+}
+
+void GOAppWindow::OnRemote(wxCommandEvent &WXUNUSED(event)) {
+  wxString status;
+  wxString pin = r_config.RemotePin();
+
+  if (pin.IsEmpty())
+    // propose a random PIN
+    pin = wxString::Format(
+      wxT("%04d"), (int)(wxGetLocalTimeMillis().GetLo() % 10000));
+  if (!m_RemoteError.IsEmpty())
+    status = m_RemoteError;
+  else if (o_RemoteServer && o_RemoteServer->IsRunning())
+    status = _("The remote control is working.");
+
+  GORemoteDialog dlg(
+    this, r_config.RemoteEnabled(), r_config.RemotePort(), pin, status);
+
+  if (dlg.ShowModal() == wxID_OK) {
+    r_config.RemoteEnabled(dlg.IsRemoteEnabled());
+    r_config.RemotePort(dlg.GetPort());
+    r_config.RemotePin(dlg.GetPin());
+    r_config.Flush();
+    EnsureRemoteServerState();
+    if (!m_RemoteError.IsEmpty())
+      wxMessageBox(
+        m_RemoteError, _("Remote control"), wxOK | wxICON_ERROR, this);
+  }
 }
 
 void GOAppWindow::OnAudioMemset(wxCommandEvent &WXUNUSED(event)) {

@@ -4485,3 +4485,58 @@ msgstr ""
 
 msgid "Could not save the piece. The file has not been changed."
 msgstr "No se ha podido guardar la pieza. El archivo no se ha modificado."
+
+msgid "Remote control"
+msgstr "Mando a distancia"
+
+msgid ""
+"Control the MIDI playlist, the volume and the combinations from a phone or a"
+" tablet connected to the same Wi-Fi network as this computer."
+msgstr ""
+"Controla la lista de reproducción MIDI, el volumen y las combinaciones desde"
+" un móvil o una tableta conectados a la misma red Wi-Fi que este ordenador."
+
+msgid "Enable the remote control"
+msgstr "Activar el mando a distancia"
+
+msgid "PIN:"
+msgstr "PIN:"
+
+msgid "Port:"
+msgstr "Puerto:"
+
+msgid "On the phone, open this address in the browser:"
+msgstr "En el móvil, abre esta dirección en el navegador:"
+
+msgid ""
+"The first time, Windows may ask whether GrandOrgue may use the network: "
+"allow it. In the browser of the phone, the page can be added to the home "
+"screen to open it like an app."
+msgstr ""
+"La primera vez, Windows puede preguntar si Grand Orgue puede usar la red: "
+"permítelo. En el navegador del móvil se puede añadir la página a la pantalla"
+" de inicio para abrirla como una app."
+
+#, c-format
+msgid "http://<address of this computer>:%d"
+msgstr "http://<dirección de este ordenador>:%d"
+
+msgid "Please enter a PIN of at least 4 digits."
+msgstr "Escribe un PIN de al menos 4 cifras."
+
+msgid "Fade out"
+msgstr "Terminar suavemente"
+
+msgid "&Remote control..."
+msgstr "&Mando a distancia..."
+
+#, c-format
+msgid ""
+"The remote control could not use the port %u. Another program may be using "
+"it: choose another port."
+msgstr ""
+"El mando a distancia no ha podido usar el puerto %u. Puede que otro programa"
+" lo esté usando: elige otro puerto."
+
+msgid "The remote control is working."
+msgstr "El mando a distancia está funcionando."
