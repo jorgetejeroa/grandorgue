@@ -263,6 +263,16 @@ jobs:
       shell: cmd
       run: build-scripts\for-win64\build-on-windows.cmd
 
+    # in a fork, keep the natively built installer too, as a second source
+    # of the Windows installer if the cross build fails
+    - name: Upload result
+      if: github.repository != 'GrandOrgue/grandorgue'
+      uses: actions/upload-artifact@v4
+      with:
+        name: grandorgue-windows-installer-native
+        path: build/win64/grandorgue*.exe
+        if-no-files-found: warn
+
   release:
     needs: [calc_ver, build]
     if: ${{ needs.calc_ver.outputs.release_flag == 'ON' }}
