@@ -412,7 +412,7 @@ void GOMidiPlaylistDialog::UpdateTimeline() {
 void GOMidiPlaylistDialog::SeekToTimeline() {
   GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
   const int value = m_Timeline->GetValue();
-  const long nowMs = wxGetLocalTimeMillis().ToLong();
+  const GOTime nowMs = wxGetLocalTimeMillis();
 
   // wx may report one movement twice (thumb release and changed)
   if (

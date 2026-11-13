@@ -14,6 +14,8 @@
 #include <wx/dialog.h>
 #include <wx/timer.h>
 
+#include "GOTime.h"
+
 class GOConfig;
 class GOMidiPlayer;
 class wxButton;
@@ -73,7 +75,8 @@ private:
   bool m_IsSeeking;
   // the last position sent to the player, against double seeking
   int m_LastSeekValue;
-  long m_LastSeekMs;
+  // milliseconds since 1970 do not fit into a 32 bit long (Windows)
+  GOTime m_LastSeekMs;
   wxStaticText *m_TempoText;
   wxCheckBox *m_AutoAdvance;
   wxStaticText *m_StatusText;
