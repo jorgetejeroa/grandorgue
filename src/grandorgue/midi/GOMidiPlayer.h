@@ -79,6 +79,12 @@ private:
    * @param event the event to process
    */
   void PlayMidiEvent(const GOMidiEvent &e);
+  /**
+   * Converts a time in the MIDI file to the real time with the current tempo
+   * @param fileTimeMs the time from the start of the file in milliseconds
+   * @return the real time when it should be played
+   */
+  GOTime ToRealTime(double fileTimeMs) const;
   void HandleTimer() override;
 
 public:

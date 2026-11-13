@@ -287,17 +287,25 @@ void GOMidiPlayer::UpdateDisplay() {
       m_PlayingSeconds % 60));
 }
 
+GOTime GOMidiPlayer::ToRealTime(double fileTimeMs) const {
+  // wxLongLong * float would truncate the factor to an integer, so the
+  // scaling must be done in floating point
+  return m_Start + (wxLongLong_t)(fileTimeMs * m_Speed);
+}
+
 void GOMidiPlayer::HandleTimer() {
   if (!m_IsPlaying)
     return;
   GOTime now = wxGetLocalTimeMillis();
-  if (m_Start + m_Speed * (m_PlayingSeconds + 1) * 1000 <= now) {
+  if (ToRealTime((m_PlayingSeconds + 1) * 1000.0) <= now) {
     m_PlayingSeconds++;
     UpdateDisplay();
   }
   do {
     GOMidiEvent e = m_content.GetCurrentEvent();
-    if (e.GetTime() * m_Speed + m_Start <= now) {
+    const GOTime eventTime = ToRealTime(e.GetTime().ToDouble());
+
+    if (eventTime <= now) {
       if (!m_content.Next()) {
         StopPlaying();
         if (m_OnFinished)
@@ -309,10 +317,9 @@ void GOMidiPlayer::HandleTimer() {
       e.SetAllowedToReload(false);
       PlayMidiEvent(e);
     } else {
-      GOTime next = e.GetTime() * m_Speed + m_Start;
-      if (next > m_Start + m_Speed * (m_PlayingSeconds + 1) * 1000)
-        next = m_Start + m_Speed * (m_PlayingSeconds + 1) * 1000;
-      r_timer.SetTimer(next, this);
+      const GOTime nextSecond = ToRealTime((m_PlayingSeconds + 1) * 1000.0);
+
+      r_timer.SetTimer(eventTime < nextSecond ? eventTime : nextSecond, this);
       return;
     }
   } while (true);
