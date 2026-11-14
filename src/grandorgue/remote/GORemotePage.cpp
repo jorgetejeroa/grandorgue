@@ -90,6 +90,14 @@ input[type=range] { width: 100%; height: 36px; accent-color: var(--gold); margin
 .seq { font-size: 30px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; flex: 0 0 110px; }
 h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 .hidden { display: none !important; }
+.tl { position: relative; }
+.ticks { position: absolute; left: 0; right: 0; top: 0; height: 8px; pointer-events: none; }
+.ticks span { position: absolute; top: 0; width: 3px; height: 10px; margin-left: -1px; background: var(--gold2); border-radius: 2px; }
+.markers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.markers button { min-height: 40px; padding: 6px 10px; font-size: 15px; flex: none; }
+.moment { display: block; color: var(--gold); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+select { width: 100%; font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 14px; padding: 12px; min-height: 52px; margin-bottom: 6px; }
 #pinScreen { padding: 40px 24px; text-align: center; }
 #pinScreen input { font-size: 32px; width: 100%; max-width: 260px; text-align: center; padding: 12px;
   border-radius: 14px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
@@ -118,8 +126,12 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
   <div class="card">
     <div class="now" id="now">Ninguna pieza cargada</div>
     <div class="status" id="status"></div>
-    <input type="range" id="timeline" min="0" max="1000" value="0">
+    <div class="tl">
+      <input type="range" id="timeline" min="0" max="1000" value="0">
+      <div class="ticks" id="ticks"></div>
+    </div>
     <div class="times"><span id="pos">0:00</span><span id="len">0:00</span></div>
+    <div class="markers" id="markers"></div>
     <div class="row transport">
       <button id="prev" aria-label="Anterior">⏮</button>
       <button id="playpause" class="main gold" aria-label="Reproducir">▶</button>
@@ -154,7 +166,9 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
   </div>
 
   <div class="card" id="listCard">
+    <select id="listSelect" aria-label="Lista"></select>
     <label class="switch"><input type="checkbox" id="auto"> Pasar sola a la siguiente pieza</label>
+    <label class="switch"><input type="checkbox" id="repeat"> Repetir la lista al terminar</label>
     <ul class="list" id="list"></ul>
     <p class="muted hidden" id="emptyList">No hay piezas en la carpeta de la lista.</p>
     <button class="mt" id="refresh" style="width:100%">Actualizar la lista</button>
@@ -259,7 +273,8 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
   }
 
   function renderList() {
-    var key = JSON.stringify(state.files) + "|" + state.selected + "|" + state.loaded;
+    var key = JSON.stringify(state.files) + JSON.stringify(state.moments || []) + "|" +
+      state.selected + "|" + state.loaded;
     if (key === filesKey) return;
     filesKey = key;
     var list = $("list");
@@ -271,7 +286,14 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
       if (i === state.loaded) li.className += " loaded";
       var span = document.createElement("span");
       span.className = "name";
-      span.textContent = name;
+      var moment = state.moments && state.moments[i];
+      if (moment) {
+        var m = document.createElement("span");
+        m.className = "moment";
+        m.textContent = moment;
+        span.appendChild(m);
+      }
+      span.appendChild(document.createTextNode(name));
       span.onclick = function () { cmd("select", {i: i}); };
       var play = document.createElement("button");
       play.textContent = "▶";
@@ -280,6 +302,49 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
       li.appendChild(span);
       li.appendChild(play);
       list.appendChild(li);
+    });
+  }
+
+  var listsKey = "";
+  function renderLists() {
+    var key = JSON.stringify(state.lists || []) + "|" + state.list;
+    if (key === listsKey) return;
+    listsKey = key;
+    var sel = $("listSelect");
+    sel.innerHTML = "";
+    var all = document.createElement("option");
+    all.value = -1;
+    all.textContent = "Todas las piezas de la carpeta";
+    sel.appendChild(all);
+    (state.lists || []).forEach(function (name, i) {
+      var o = document.createElement("option");
+      o.value = i;
+      o.textContent = name;
+      sel.appendChild(o);
+    });
+    sel.value = state.list;
+  }
+
+  var markersKey = "";
+  function renderMarkers() {
+    var markers = state.markers || [];
+    var key = JSON.stringify(markers) + "|" + state.length + "|" + state.tempo;
+    if (key === markersKey) return;
+    markersKey = key;
+    var box = $("markers");
+    var ticks = $("ticks");
+    box.innerHTML = "";
+    ticks.innerHTML = "";
+    markers.forEach(function (mk) {
+      var b = document.createElement("button");
+      b.textContent = mk.name + " · " + fmt(realMs(mk.ms));
+      b.onclick = function () { cmd("seek", {ms: mk.ms}); };
+      box.appendChild(b);
+      if (state.length > 0) {
+        var t = document.createElement("span");
+        t.style.left = (mk.ms / state.length * 100) + "%";
+        ticks.appendChild(t);
+      }
     });
   }
 
@@ -354,9 +419,12 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
     $("volume").textContent = state.volume + " dB";
     $("tempo").textContent = state.tempo + "%";
     $("auto").checked = !!state.autoAdvance;
+    $("repeat").checked = !!state.repeat;
     $("seq").textContent = state.sequencer || "—";
     $("bank").textContent = state.bank || "—";
+    renderLists();
     renderList();
+    renderMarkers();
     renderGenerals();
   }
 
@@ -372,6 +440,8 @@ h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; t
   $("tempoUp").onclick = function () { cmd("tempo", {d: 5}); };
   $("tempo100").onclick = function () { cmd("tempo100"); };
   $("auto").onchange = function () { cmd("auto", {on: this.checked ? 1 : 0}); };
+  $("repeat").onchange = function () { cmd("repeat", {on: this.checked ? 1 : 0}); };
+  $("listSelect").onchange = function () { filesKey = ""; cmd("list", {i: this.value}); };
   $("refresh").onclick = function () { filesKey = ""; cmd("refresh"); };
   $("seqPrev").onclick = function () { cmd("seqprev"); };
   $("seqNext").onclick = function () { cmd("seqnext"); };

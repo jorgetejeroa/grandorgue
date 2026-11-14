@@ -25,13 +25,13 @@ GOMidiChannelMappingDialog::GOMidiChannelMappingDialog(
   bool isMidiInputNumberMappingUsable,
   GOConfig::MidiFileChannelMapping defaultMapping)
   : GOSimpleDialog(
-    parent,
-    "MidiChannelMapping",
-    _("Choose MIDI channel mapping"),
-    config.m_DialogSizes,
-    wxEmptyString,
-    0,
-    wxOK | wxCANCEL) {
+      parent,
+      "MidiChannelMapping",
+      _("Choose MIDI channel mapping"),
+      config.m_DialogSizes,
+      wxEmptyString,
+      0,
+      wxOK | wxCANCEL) {
   wxBoxSizer *sizer = new wxBoxSizer(wxVERTICAL);
 
   wxStaticText *label = new wxStaticText(

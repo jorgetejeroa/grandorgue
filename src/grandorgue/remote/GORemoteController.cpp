@@ -151,6 +151,10 @@ void GORemoteController::Execute(
     playlist.SeekTo((double)get_int(params, "ms", 0));
   else if (action == "auto")
     playlist.SetAutoAdvance(get_int(params, "on", 0) != 0);
+  else if (action == "repeat")
+    playlist.SetRepeat(get_int(params, "on", 0) != 0);
+  else if (action == "list")
+    playlist.SelectList((int)get_int(params, "i", -1));
   else if (action == "refresh")
     playlist.RefreshList();
   else if (action == "vol") {
@@ -205,6 +209,30 @@ std::string GORemoteController::GetStateJson() {
   for (const wxString &path : playlist.GetFiles())
     json.Value(wxFileName(path).GetName());
   json.EndArray();
+  json.Key("moments");
+  json.BeginArray();
+  for (const wxString &moment : playlist.GetMoments())
+    json.Value(moment);
+  json.EndArray();
+  json.Key("lists");
+  json.BeginArray();
+  for (const wxString &name : playlist.GetListNames())
+    json.Value(name);
+  json.EndArray();
+  json.Key("list");
+  json.Value((long long)playlist.GetCurrentListIndex());
+  json.Key("markers");
+  json.BeginArray();
+  for (const GOMidiMarkers::Marker &marker :
+       playlist.GetMarkers().GetMarkers()) {
+    json.BeginObject();
+    json.Key("name");
+    json.Value(marker.m_name);
+    json.Key("ms");
+    json.Value((long long)marker.m_position);
+    json.EndObject();
+  }
+  json.EndArray();
   json.Key("selected");
   json.Value((long long)playlist.GetSelectedIndex());
   json.Key("loaded");
@@ -223,6 +251,8 @@ std::string GORemoteController::GetStateJson() {
   json.Value((long long)(pPlayer ? pPlayer->GetTempoPercent() : 100));
   json.Key("autoAdvance");
   json.Value(playlist.IsAutoAdvance());
+  json.Key("repeat");
+  json.Value(playlist.IsRepeat());
   json.Key("fading");
   json.Value(playlist.IsFading());
 

@@ -108,13 +108,13 @@ void GOMidiObjectsDialog::ObjectConfigListener::OnSettingsApplied() {
 GOMidiObjectsDialog::GOMidiObjectsDialog(
   GODocumentBase *doc, wxWindow *parent, GOOrganModel &organModel)
   : GOSimpleDialog(
-    parent,
-    wxT("MIDI Objects"),
-    _("MIDI Objects"),
-    organModel.GetConfig().m_DialogSizes,
-    wxEmptyString,
-    0,
-    wxCLOSE | wxHELP),
+      parent,
+      wxT("MIDI Objects"),
+      _("MIDI Objects"),
+      organModel.GetConfig().m_DialogSizes,
+      wxEmptyString,
+      0,
+      wxCLOSE | wxHELP),
     GODocumentView(doc, this),
     r_config(organModel.GetConfig()),
     m_ExportImportDir(r_config.ExportImportPath()),

@@ -21,7 +21,8 @@ class GOOrganController;
  * Commands (parameter a):
  * - state: nothing, only the state
  * - select (i), play (i, optional), playpause, stop, prev, next, fade,
- *   tempo (d), tempo100, seek (ms), auto (on=0/1), refresh: the playlist
+ *   tempo (d), tempo100, seek (ms), auto (on=0/1), repeat (on=0/1),
+ *   list (i, -1 = all pieces), refresh: the playlist
  * - vol (v): the volume in dB
  * - seqprev, seqnext, seqhome: the combination sequencer
  * - general (n = 1..50), bankprev, banknext, gc: the banked generals

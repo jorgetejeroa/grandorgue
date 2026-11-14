@@ -4540,3 +4540,160 @@ msgstr ""
 
 msgid "The remote control is working."
 msgstr "El mando a distancia está funcionando."
+
+msgid "List:"
+msgstr "Lista:"
+
+msgid "New list..."
+msgstr "Nueva lista..."
+
+msgid "Edit..."
+msgstr "Editar..."
+
+msgid "Duplicate..."
+msgstr "Duplicar..."
+
+msgid "Add marker..."
+msgstr "Añadir marcador..."
+
+msgid "Markers..."
+msgstr "Marcadores..."
+
+msgid "Start the list again after the last piece"
+msgstr "Repetir la lista al terminar la última pieza"
+
+msgid "All pieces of the folder"
+msgstr "Todas las piezas de la carpeta"
+
+msgid "(not found)"
+msgstr "(no encontrada)"
+
+msgid "Mass"
+msgstr "Misa"
+
+msgid "New list"
+msgstr "Nueva lista"
+
+msgid "Duplicate list"
+msgstr "Duplicar lista"
+
+msgid "Edit list"
+msgstr "Editar lista"
+
+#, c-format
+msgid "A list called \"%s\" already exists. Replace it?"
+msgstr "Ya existe una lista llamada \"%s\". ¿Quieres reemplazarla?"
+
+msgid "Could not save the list."
+msgstr "No se ha podido guardar la lista."
+
+#, c-format
+msgid "Delete the list \"%s\"? The pieces themselves are not deleted."
+msgstr "¿Borrar la lista \"%s\"? Las piezas no se borran."
+
+msgid "Delete list"
+msgstr "Borrar lista"
+
+#, c-format
+msgid "Name of the marker at %s:"
+msgstr "Nombre del marcador en %s:"
+
+msgid "Add marker"
+msgstr "Añadir marcador"
+
+#, c-format
+msgid "Marker %u"
+msgstr "Marcador %u"
+
+msgid "Could not save the markers."
+msgstr "No se han podido guardar los marcadores."
+
+msgid "Markers"
+msgstr "Marcadores"
+
+msgid "Play from here"
+msgstr "Tocar desde aquí"
+
+msgid "Rename..."
+msgstr "Cambiar nombre..."
+
+msgid "1 second earlier"
+msgstr "1 segundo antes"
+
+msgid "1 second later"
+msgstr "1 segundo después"
+
+msgid "Name of the marker:"
+msgstr "Nombre del marcador:"
+
+msgid "Rename marker"
+msgstr "Cambiar nombre del marcador"
+
+msgid "Name:"
+msgstr "Nombre:"
+
+msgid "Free"
+msgstr "Libre"
+
+msgid "All pieces:"
+msgstr "Todas las piezas:"
+
+msgid "Add >>"
+msgstr "Añadir >>"
+
+msgid "In this list:"
+msgstr "En esta lista:"
+
+msgid "Up"
+msgstr "Subir"
+
+msgid "Down"
+msgstr "Bajar"
+
+msgid "Remove"
+msgstr "Quitar"
+
+msgid "Moment:"
+msgstr "Momento:"
+
+msgid "Please enter a name for the list."
+msgstr "Escribe un nombre para la lista."
+
+msgid "Lists"
+msgstr "Listas"
+
+msgid "Entrance"
+msgstr "Entrada"
+
+msgid "Kyrie"
+msgstr "Kyrie"
+
+msgid "Gloria"
+msgstr "Gloria"
+
+msgid "Psalm"
+msgstr "Salmo"
+
+msgid "Alleluia"
+msgstr "Aleluya"
+
+msgid "Offertory"
+msgstr "Ofertorio"
+
+msgid "Sanctus"
+msgstr "Santo"
+
+msgid "Our Father"
+msgstr "Padrenuestro"
+
+msgid "Agnus Dei"
+msgstr "Cordero de Dios"
+
+msgid "Communion"
+msgstr "Comunión"
+
+msgid "Thanksgiving"
+msgstr "Acción de gracias"
+
+msgid "Recessional"
+msgstr "Final"

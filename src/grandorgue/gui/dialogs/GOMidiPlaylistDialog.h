@@ -9,10 +9,13 @@
 #define GOMIDIPLAYLISTDIALOG_H
 
 #include <functional>
+#include <vector>
 
 #include <wx/arrstr.h>
 #include <wx/dialog.h>
 #include <wx/timer.h>
+
+#include "midi/playlist/GOMidiMarkers.h"
 
 #include "GOTime.h"
 
@@ -20,7 +23,9 @@ class GOConfig;
 class GOMidiPlayer;
 class wxButton;
 class wxCheckBox;
+class wxChoice;
 class wxListBox;
+class wxPanel;
 class wxScrollEvent;
 class wxSlider;
 class wxStaticText;
@@ -72,6 +77,10 @@ private:
   Host &r_host;
 
   wxStaticText *m_FolderText;
+  wxChoice *m_ListChoice;
+  wxButton *m_EditListButton;
+  wxButton *m_DuplicateListButton;
+  wxButton *m_DeleteListButton;
   wxListBox *m_List;
   wxButton *m_PrevButton;
   wxButton *m_PlayButton;
@@ -80,6 +89,9 @@ private:
   wxButton *m_NextButton;
   wxButton *m_FadeOutButton;
   wxSlider *m_Timeline;
+  wxPanel *m_MarkersPanel;
+  wxButton *m_AddMarkerButton;
+  wxButton *m_EditMarkersButton;
   wxStaticText *m_TimeText;
   wxButton *m_SaveTempoButton;
   // whether the user is dragging the timeline thumb now
@@ -96,13 +108,34 @@ private:
   wxTimer m_FadeTimer;
   wxStaticText *m_TempoText;
   wxCheckBox *m_AutoAdvance;
+  wxCheckBox *m_Repeat;
   wxStaticText *m_StatusText;
   wxTimer m_RefreshTimer;
 
-  wxArrayString m_Files; // full paths in the order of the list
+  wxArrayString m_Files;           // full paths in the order of the list
+  std::vector<wxString> m_Moments; // the moment of each piece or empty
+  wxArrayString m_ListPaths;       // the prepared lists, the newest first
+  wxString m_CurrentListPath;      // the shown prepared list, empty: all pieces
   wxString m_LoadedPath; // the file loaded into the player by this dialog
+  // the position of the loaded piece in the list (a piece may be repeated)
+  int m_LoadedIndex;
+  // the markers of the loaded piece
+  GOMidiMarkers m_Markers;
+  wxString m_MarkersPath;  // the file the markers belong to
+  unsigned m_MarkersTempo; // the tempo the marker buttons show
 
   void FillList();
+  /** @return the MIDI file names of the folder, sorted */
+  wxArrayString GetFolderFileNames() const;
+  /** Loads the markers of the loaded piece if it has changed */
+  void UpdateMarkers();
+  void RebuildMarkerButtons();
+  /**
+   * Opens the list editor
+   * @param listPath the list to edit or to copy, empty for a new list
+   * @param isCopy whether a copy of listPath is made
+   */
+  void EditList(const wxString &listPath, bool isCopy);
   wxString GetSelectedPath() const;
   bool IsLoadedByMe(const wxString &path);
   bool LoadIndex(int index);
@@ -131,6 +164,14 @@ private:
   void OnTempoReset(wxCommandEvent &event);
   void OnFaster(wxCommandEvent &event);
   void OnAutoAdvance(wxCommandEvent &event);
+  void OnRepeat(wxCommandEvent &event);
+  void OnListChoice(wxCommandEvent &event);
+  void OnNewList(wxCommandEvent &event);
+  void OnEditList(wxCommandEvent &event);
+  void OnDuplicateList(wxCommandEvent &event);
+  void OnDeleteList(wxCommandEvent &event);
+  void OnAddMarker(wxCommandEvent &event);
+  void OnEditMarkers(wxCommandEvent &event);
   void OnSaveTempo(wxCommandEvent &event);
   void OnTimelineTrack(wxScrollEvent &event);
   void OnTimelineRelease(wxScrollEvent &event);
@@ -175,6 +216,12 @@ public:
    */
   void SeekTo(double positionMs);
   void SetAutoAdvance(bool isAutoAdvance);
+  void SetRepeat(bool isRepeat);
+  /**
+   * Shows a prepared list
+   * @param index the index in GetListNames() or -1 for all pieces
+   */
+  void SelectList(int index);
   /** Reads the folder again */
   void RefreshList();
   /**
@@ -189,6 +236,15 @@ public:
   /** @return the index of the piece in the player or wxNOT_FOUND */
   int GetLoadedIndex() const;
   bool IsAutoAdvance() const;
+  bool IsRepeat() const;
+  /** @return the names of the prepared lists, the newest first */
+  wxArrayString GetListNames() const;
+  /** @return the index of the shown list in GetListNames() or -1 */
+  int GetCurrentListIndex() const;
+  /** @return the moment of each piece of the list (empty if none) */
+  const std::vector<wxString> &GetMoments() const { return m_Moments; }
+  /** @return the markers of the loaded piece */
+  const GOMidiMarkers &GetMarkers();
   bool IsFading() const { return m_IsFading; }
 
   DECLARE_EVENT_TABLE()

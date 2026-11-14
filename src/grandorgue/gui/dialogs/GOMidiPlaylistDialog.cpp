@@ -11,20 +11,28 @@
 
 #include <wx/button.h>
 #include <wx/checkbox.h>
+#include <wx/choice.h>
 #include <wx/dir.h>
 #include <wx/dirdlg.h>
 #include <wx/filename.h>
 #include <wx/intl.h>
 #include <wx/listbox.h>
 #include <wx/msgdlg.h>
+#include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/stattext.h>
+#include <wx/textdlg.h>
 #include <wx/weakref.h>
+#include <wx/wrapsizer.h>
 
 #include "config/GOConfig.h"
 #include "midi/GOMidiPlayer.h"
 #include "midi/files/GOMidiFileTimeScaler.h"
+#include "midi/playlist/GOMidiList.h"
+
+#include "GOMidiListEditorDialog.h"
+#include "GOMidiMarkersDialog.h"
 
 enum {
   ID_PLAYLIST_FOLDER = 200,
@@ -44,6 +52,14 @@ enum {
   ID_PLAYLIST_TIMELINE,
   ID_PLAYLIST_FADE_OUT,
   ID_PLAYLIST_FADE_TIMER,
+  ID_PLAYLIST_LIST_CHOICE,
+  ID_PLAYLIST_NEW_LIST,
+  ID_PLAYLIST_EDIT_LIST,
+  ID_PLAYLIST_DUPLICATE_LIST,
+  ID_PLAYLIST_DELETE_LIST,
+  ID_PLAYLIST_REPEAT,
+  ID_PLAYLIST_ADD_MARKER,
+  ID_PLAYLIST_EDIT_MARKERS,
 };
 
 // the fade out: the volume goes down by FADE_DEPTH_DB in FADE_DURATION_MS,
@@ -74,6 +90,14 @@ EVT_TIMER(ID_PLAYLIST_TIMER, GOMidiPlaylistDialog::OnRefreshTimer)
 EVT_BUTTON(ID_PLAYLIST_SAVE_TEMPO, GOMidiPlaylistDialog::OnSaveTempo)
 EVT_BUTTON(ID_PLAYLIST_FADE_OUT, GOMidiPlaylistDialog::OnFadeOut)
 EVT_TIMER(ID_PLAYLIST_FADE_TIMER, GOMidiPlaylistDialog::OnFadeTimer)
+EVT_CHOICE(ID_PLAYLIST_LIST_CHOICE, GOMidiPlaylistDialog::OnListChoice)
+EVT_BUTTON(ID_PLAYLIST_NEW_LIST, GOMidiPlaylistDialog::OnNewList)
+EVT_BUTTON(ID_PLAYLIST_EDIT_LIST, GOMidiPlaylistDialog::OnEditList)
+EVT_BUTTON(ID_PLAYLIST_DUPLICATE_LIST, GOMidiPlaylistDialog::OnDuplicateList)
+EVT_BUTTON(ID_PLAYLIST_DELETE_LIST, GOMidiPlaylistDialog::OnDeleteList)
+EVT_CHECKBOX(ID_PLAYLIST_REPEAT, GOMidiPlaylistDialog::OnRepeat)
+EVT_BUTTON(ID_PLAYLIST_ADD_MARKER, GOMidiPlaylistDialog::OnAddMarker)
+EVT_BUTTON(ID_PLAYLIST_EDIT_MARKERS, GOMidiPlaylistDialog::OnEditMarkers)
 EVT_COMMAND_SCROLL_THUMBTRACK(
   ID_PLAYLIST_TIMELINE, GOMidiPlaylistDialog::OnTimelineTrack)
 EVT_COMMAND_SCROLL_THUMBRELEASE(
@@ -106,7 +130,9 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     m_FadeStartGain(0),
     m_FadeStart(0),
     m_FadeTimer(this, ID_PLAYLIST_FADE_TIMER),
-    m_RefreshTimer(this, ID_PLAYLIST_TIMER) {
+    m_RefreshTimer(this, ID_PLAYLIST_TIMER),
+    m_LoadedIndex(wxNOT_FOUND),
+    m_MarkersTempo(0) {
   wxBoxSizer *topSizer = new wxBoxSizer(wxVERTICAL);
 
   // the folder
@@ -131,6 +157,26 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     5);
   folderSizer->Add(new wxButton(this, ID_PLAYLIST_REFRESH, _("Refresh")));
   topSizer->Add(folderSizer, 0, wxEXPAND | wxALL, 8);
+
+  // the prepared lists
+  wxBoxSizer *listSizer = new wxBoxSizer(wxHORIZONTAL);
+  listSizer->Add(
+    new wxStaticText(this, wxID_ANY, _("List:")),
+    0,
+    wxALIGN_CENTER_VERTICAL | wxRIGHT,
+    5);
+  m_ListChoice = new wxChoice(this, ID_PLAYLIST_LIST_CHOICE);
+  listSizer->Add(m_ListChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+  listSizer->Add(
+    new wxButton(this, ID_PLAYLIST_NEW_LIST, _("New list...")), 0, wxRIGHT, 4);
+  m_EditListButton = new wxButton(this, ID_PLAYLIST_EDIT_LIST, _("Edit..."));
+  listSizer->Add(m_EditListButton, 0, wxRIGHT, 4);
+  m_DuplicateListButton
+    = new wxButton(this, ID_PLAYLIST_DUPLICATE_LIST, _("Duplicate..."));
+  listSizer->Add(m_DuplicateListButton, 0, wxRIGHT, 4);
+  m_DeleteListButton = new wxButton(this, ID_PLAYLIST_DELETE_LIST, _("Delete"));
+  listSizer->Add(m_DeleteListButton);
+  topSizer->Add(listSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
   // the list of files
   m_List = new wxListBox(
@@ -165,6 +211,19 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
   timelineSizer->Add(m_Timeline, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
   timelineSizer->Add(m_TimeText, 0, wxALIGN_CENTER_VERTICAL);
   topSizer->Add(timelineSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
+
+  // the markers of the loaded piece
+  wxBoxSizer *markersSizer = new wxBoxSizer(wxHORIZONTAL);
+  m_MarkersPanel = new wxPanel(this);
+  m_MarkersPanel->SetSizer(new wxWrapSizer(wxHORIZONTAL));
+  markersSizer->Add(m_MarkersPanel, 1, wxEXPAND | wxRIGHT, 8);
+  m_AddMarkerButton
+    = new wxButton(this, ID_PLAYLIST_ADD_MARKER, _("Add marker..."));
+  markersSizer->Add(m_AddMarkerButton, 0, wxALIGN_TOP | wxRIGHT, 4);
+  m_EditMarkersButton
+    = new wxButton(this, ID_PLAYLIST_EDIT_MARKERS, _("Markers..."));
+  markersSizer->Add(m_EditMarkersButton, 0, wxALIGN_TOP);
+  topSizer->Add(markersSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, 8);
 
   // the transport buttons
   wxBoxSizer *transportSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -224,6 +283,10 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     this, ID_PLAYLIST_AUTO_ADVANCE, _("Go on to the next piece automatically"));
   m_AutoAdvance->SetValue(r_config.MidiPlaylistAutoAdvance());
   topSizer->Add(m_AutoAdvance, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+  m_Repeat = new wxCheckBox(
+    this, ID_PLAYLIST_REPEAT, _("Start the list again after the last piece"));
+  m_Repeat->SetValue(r_config.MidiPlaylistRepeat());
+  topSizer->Add(m_Repeat, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
   // the status line
   m_StatusText = new wxStaticText(
@@ -245,26 +308,83 @@ GOMidiPlaylistDialog::~GOMidiPlaylistDialog() {
   m_FadeTimer.Stop();
 }
 
+wxArrayString GOMidiPlaylistDialog::GetFolderFileNames() const {
+  const wxString folder = r_config.MidiPlaylistPath();
+  wxArrayString paths;
+  wxArrayString names;
+
+  if (wxDir::Exists(folder)) {
+    wxDir::GetAllFiles(folder, &paths, wxT("*.mid"), wxDIR_FILES);
+    paths.Sort(compare_file_names);
+  }
+  for (const wxString &path : paths)
+    names.Add(wxFileName(path).GetFullName());
+  return names;
+}
+
 void GOMidiPlaylistDialog::FillList() {
   const wxString folder = r_config.MidiPlaylistPath();
   const wxString selected = GetSelectedPath();
+  const int selectedIndex = m_List->GetSelection();
 
   m_FolderText->SetLabel(folder);
   m_FolderText->SetToolTip(folder);
+
+  // the prepared lists, the newest first
+  m_ListPaths = GOMidiList::getListPaths(folder);
+  if (m_ListPaths.Index(m_CurrentListPath) == wxNOT_FOUND)
+    m_CurrentListPath = wxEmptyString;
+  m_ListChoice->Clear();
+  m_ListChoice->Append(_("All pieces of the folder"));
+  for (const wxString &listPath : m_ListPaths)
+    m_ListChoice->Append(GOMidiList::getListName(listPath));
+  m_ListChoice->SetSelection(
+    m_CurrentListPath.IsEmpty() ? 0 : m_ListPaths.Index(m_CurrentListPath) + 1);
+
+  // the pieces
   m_Files.Clear();
+  m_Moments.clear();
   m_List->Clear();
-  if (wxDir::Exists(folder)) {
-    wxDir::GetAllFiles(folder, &m_Files, wxT("*.mid"), wxDIR_FILES);
-    m_Files.Sort(compare_file_names);
+  if (m_CurrentListPath.IsEmpty()) {
+    for (const wxString &fileName : GetFolderFileNames()) {
+      m_Files.Add(folder + wxFileName::GetPathSeparator() + fileName);
+      m_Moments.push_back(wxEmptyString);
+    }
+  } else {
+    GOMidiList list;
+
+    list.Load(m_CurrentListPath);
+    for (const GOMidiList::Item &item : list.GetItems()) {
+      m_Files.Add(folder + wxFileName::GetPathSeparator() + item.m_FileName);
+      m_Moments.push_back(list.IsMass() ? item.m_moment : wxString());
+    }
   }
-  for (const wxString &path : m_Files)
-    m_List->Append(wxFileName(path).GetName());
+  for (unsigned n = m_Files.GetCount(), i = 0; i < n; i++) {
+    const wxString &path = m_Files[i];
+    wxString label = wxFileName(path).GetName();
+
+    if (!m_Moments[i].IsEmpty())
+      label = m_Moments[i] + wxT("  -  ") + label;
+    if (!wxFileExists(path))
+      label += wxT(" ") + _("(not found)");
+    m_List->Append(label);
+  }
+
+  // the loaded piece may be in the list several times
+  if (
+    m_LoadedIndex == wxNOT_FOUND || m_LoadedIndex >= (int)m_Files.GetCount()
+    || m_Files[m_LoadedIndex] != m_LoadedPath)
+    m_LoadedIndex
+      = m_LoadedPath.IsEmpty() ? wxNOT_FOUND : m_Files.Index(m_LoadedPath);
 
   // keep the selection if possible
-  int index = m_Files.Index(selected);
+  int index = selectedIndex >= 0 && selectedIndex < (int)m_Files.GetCount()
+      && m_Files[selectedIndex] == selected
+    ? selectedIndex
+    : m_Files.Index(selected);
 
-  if (index == wxNOT_FOUND && !m_LoadedPath.IsEmpty())
-    index = m_Files.Index(m_LoadedPath);
+  if (index == wxNOT_FOUND)
+    index = m_LoadedIndex;
   if (index != wxNOT_FOUND)
     m_List->SetSelection(index);
 }
@@ -295,13 +415,16 @@ bool GOMidiPlaylistDialog::LoadIndex(int index) {
 
     m_List->SetSelection(index);
     m_LoadedPath = wxEmptyString;
+    m_LoadedIndex = wxNOT_FOUND;
     isLoaded = r_host.LoadMidiFile(path, [self]() {
       if (self)
         // do not change the player from inside its own timer handler
         self->CallAfter(&GOMidiPlaylistDialog::OnFileFinished);
     });
-    if (isLoaded)
+    if (isLoaded) {
       m_LoadedPath = path;
+      m_LoadedIndex = index;
+    }
   }
   UpdateState();
   return isLoaded;
@@ -320,13 +443,18 @@ void GOMidiPlaylistDialog::PlayIndex(int index) {
 }
 
 void GOMidiPlaylistDialog::OnFileFinished() {
-  const int current = m_Files.Index(m_LoadedPath);
+  const int current = GetLoadedIndex();
   const int selected = m_List->GetSelection();
   int next = current == wxNOT_FOUND ? wxNOT_FOUND : current + 1;
 
   // a piece chosen while the current one was playing goes first
   if (selected != wxNOT_FOUND && selected != current)
     next = selected;
+  // after the last piece, start the list again if wanted
+  if (
+    next != wxNOT_FOUND && next >= (int)m_Files.GetCount()
+    && m_Repeat->GetValue())
+    next = 0;
 
   if (next != wxNOT_FOUND && next < (int)m_Files.GetCount()) {
     // no automatic start while the music is being faded out
@@ -356,8 +484,10 @@ void GOMidiPlaylistDialog::UpdateState() {
   const int selected = m_List->GetSelection();
 
   // the player content may have been replaced (other organ, Load MIDI menu)
-  if (!player || !player->IsLoaded())
+  if (!player || !player->IsLoaded()) {
     m_LoadedPath = wxEmptyString;
+    m_LoadedIndex = wxNOT_FOUND;
+  }
 
   m_PrevButton->Enable(player && hasFiles && selected > 0);
   m_NextButton->Enable(
@@ -399,6 +529,14 @@ void GOMidiPlaylistDialog::UpdateState() {
   if (m_StatusText->GetLabel() != status)
     m_StatusText->SetLabel(status);
 
+  m_EditListButton->Enable(!m_CurrentListPath.IsEmpty());
+  m_DuplicateListButton->Enable(!m_CurrentListPath.IsEmpty());
+  m_DeleteListButton->Enable(!m_CurrentListPath.IsEmpty());
+  m_AddMarkerButton->Enable(
+    player && !m_LoadedPath.IsEmpty() && player->IsPlaying());
+  m_EditMarkersButton->Enable(
+    !m_LoadedPath.IsEmpty() && m_Markers.GetCount() > 0);
+  UpdateMarkers();
   m_SaveTempoButton->Enable(
     player && !m_LoadedPath.IsEmpty() && !player->IsPlaying()
     && player->GetTempoPercent() != 100);
@@ -520,9 +658,26 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
           wxOK | wxICON_ERROR,
           this);
       else {
+        const int loadedIndex = GetLoadedIndex();
+        GOMidiMarkers markers;
+
+        // the markers move with the music: keep the original ones too
+        markers.Load(path);
+        if (markers.GetCount() > 0) {
+          const wxString markersPath = GOMidiMarkers::getMarkersPath(path);
+          const wxString markersBackup = backupDir
+            + wxFileName::GetPathSeparator()
+            + wxFileName(markersPath).GetFullName();
+
+          if (!wxFileExists(markersBackup))
+            wxCopyFile(markersPath, markersBackup, false);
+          markers.Scale(100.0 / tempo);
+          markers.Save(path);
+        }
+        m_MarkersPath = wxEmptyString; // read them again
         // the file now has the new tempo: play it at 100% from now on
         pPlayer->SetTempoPercent(100);
-        LoadIndex(m_Files.Index(path));
+        LoadIndex(loadedIndex);
       }
     }
   }
@@ -531,6 +686,7 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
 
 void GOMidiPlaylistDialog::ForgetLoadedFile() {
   m_LoadedPath = wxEmptyString;
+  m_LoadedIndex = wxNOT_FOUND;
   UpdateState();
 }
 
@@ -660,7 +816,231 @@ int GOMidiPlaylistDialog::GetSelectedIndex() const {
 }
 
 int GOMidiPlaylistDialog::GetLoadedIndex() const {
-  return m_LoadedPath.IsEmpty() ? wxNOT_FOUND : m_Files.Index(m_LoadedPath);
+  int index = wxNOT_FOUND;
+
+  if (!m_LoadedPath.IsEmpty())
+    index = m_LoadedIndex >= 0 && m_LoadedIndex < (int)m_Files.GetCount()
+        && m_Files[m_LoadedIndex] == m_LoadedPath
+      ? m_LoadedIndex
+      : m_Files.Index(m_LoadedPath);
+  return index;
+}
+
+bool GOMidiPlaylistDialog::IsRepeat() const { return m_Repeat->GetValue(); }
+
+void GOMidiPlaylistDialog::SetRepeat(bool isRepeat) {
+  m_Repeat->SetValue(isRepeat);
+  r_config.MidiPlaylistRepeat(isRepeat);
+  r_config.Flush();
+}
+
+wxArrayString GOMidiPlaylistDialog::GetListNames() const {
+  wxArrayString names;
+
+  for (const wxString &listPath : m_ListPaths)
+    names.Add(GOMidiList::getListName(listPath));
+  return names;
+}
+
+int GOMidiPlaylistDialog::GetCurrentListIndex() const {
+  return m_CurrentListPath.IsEmpty() ? -1
+                                     : m_ListPaths.Index(m_CurrentListPath);
+}
+
+void GOMidiPlaylistDialog::SelectList(int index) {
+  m_CurrentListPath = index >= 0 && index < (int)m_ListPaths.GetCount()
+    ? m_ListPaths[index]
+    : wxString();
+  FillList();
+  UpdateState();
+}
+
+const GOMidiMarkers &GOMidiPlaylistDialog::GetMarkers() {
+  UpdateMarkers();
+  return m_Markers;
+}
+
+void GOMidiPlaylistDialog::UpdateMarkers() {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+  const unsigned tempo = pPlayer ? pPlayer->GetTempoPercent() : 100;
+
+  if (m_LoadedPath != m_MarkersPath) {
+    m_MarkersPath = m_LoadedPath;
+    if (m_LoadedPath.IsEmpty())
+      m_Markers.Clear();
+    else
+      m_Markers.Load(m_LoadedPath);
+    m_MarkersTempo = 0; // rebuild the buttons
+  }
+  if (m_MarkersTempo != tempo) {
+    m_MarkersTempo = tempo;
+    RebuildMarkerButtons();
+  }
+}
+
+void GOMidiPlaylistDialog::RebuildMarkerButtons() {
+  m_MarkersPanel->DestroyChildren();
+  for (const GOMidiMarkers::Marker &marker : m_Markers.GetMarkers()) {
+    const double position = marker.m_position;
+    wxButton *pButton = new wxButton(
+      m_MarkersPanel,
+      wxID_ANY,
+      marker.m_name + wxT("  ") + FormatTime(position),
+      wxDefaultPosition,
+      wxDefaultSize,
+      wxBU_EXACTFIT);
+
+    pButton->Bind(
+      wxEVT_BUTTON, [this, position](wxCommandEvent &) { SeekTo(position); });
+    m_MarkersPanel->GetSizer()->Add(pButton, 0, wxRIGHT | wxBOTTOM, 4);
+  }
+  m_MarkersPanel->Layout();
+  Layout();
+}
+
+void GOMidiPlaylistDialog::EditList(const wxString &listPath, bool isCopy) {
+  const wxString folder = r_config.MidiPlaylistPath();
+  GOMidiList list;
+  wxString name;
+  wxString title;
+
+  if (listPath.IsEmpty()) {
+    list.SetMass(true);
+    name = _("Mass") + wxT(" ") + wxDateTime::Now().Format(wxT("%d-%m-%Y"));
+    title = _("New list");
+  } else {
+    list.Load(listPath);
+    name = isCopy
+      ? (list.IsMass() ? _("Mass") : GOMidiList::getListName(listPath))
+        + wxT(" ") + wxDateTime::Now().Format(wxT("%d-%m-%Y"))
+      : GOMidiList::getListName(listPath);
+    title = isCopy ? _("Duplicate list") : _("Edit list");
+  }
+
+  GOMidiListEditorDialog dlg(this, title, name, list, GetFolderFileNames());
+  bool isDone = false;
+
+  while (!isDone && dlg.ShowModal() == wxID_OK) {
+    const wxString newPath = GOMidiList::getListPath(folder, dlg.GetName());
+    const bool isSameFile = !isCopy && newPath == listPath;
+
+    if (
+      !isSameFile && wxFileExists(newPath)
+      && wxMessageBox(
+           wxString::Format(
+             _("A list called \"%s\" already exists. Replace it?"),
+             dlg.GetName()),
+           title,
+           wxYES_NO | wxICON_QUESTION,
+           this)
+        != wxYES) {
+      // ask for another name
+    } else if (!dlg.GetList().Save(newPath))
+      wxMessageBox(
+        _("Could not save the list."), title, wxOK | wxICON_ERROR, this);
+    else {
+      // a renamed list: remove the old file
+      if (!listPath.IsEmpty() && !isCopy && !isSameFile)
+        wxRemoveFile(listPath);
+      m_CurrentListPath = newPath;
+      isDone = true;
+    }
+  }
+  FillList();
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::OnListChoice(wxCommandEvent &event) {
+  SelectList(m_ListChoice->GetSelection() - 1);
+}
+
+void GOMidiPlaylistDialog::OnNewList(wxCommandEvent &event) {
+  EditList(wxEmptyString, false);
+}
+
+void GOMidiPlaylistDialog::OnEditList(wxCommandEvent &event) {
+  if (!m_CurrentListPath.IsEmpty())
+    EditList(m_CurrentListPath, false);
+}
+
+void GOMidiPlaylistDialog::OnDuplicateList(wxCommandEvent &event) {
+  if (!m_CurrentListPath.IsEmpty())
+    EditList(m_CurrentListPath, true);
+}
+
+void GOMidiPlaylistDialog::OnDeleteList(wxCommandEvent &event) {
+  if (
+    !m_CurrentListPath.IsEmpty()
+    && wxMessageBox(
+         wxString::Format(
+           _("Delete the list \"%s\"? The pieces themselves are not "
+             "deleted."),
+           GOMidiList::getListName(m_CurrentListPath)),
+         _("Delete list"),
+         wxYES_NO | wxICON_QUESTION,
+         this)
+      == wxYES) {
+    wxRemoveFile(m_CurrentListPath);
+    m_CurrentListPath = wxEmptyString;
+    FillList();
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::OnRepeat(wxCommandEvent &event) {
+  SetRepeat(m_Repeat->GetValue());
+}
+
+void GOMidiPlaylistDialog::OnAddMarker(wxCommandEvent &event) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (pPlayer && !m_LoadedPath.IsEmpty() && pPlayer->IsPlaying()) {
+    const double position = pPlayer->GetPosition();
+    wxTextEntryDialog dlg(
+      this,
+      wxString::Format(_("Name of the marker at %s:"), FormatTime(position)),
+      _("Add marker"),
+      wxString::Format(_("Marker %u"), m_Markers.GetCount() + 1));
+
+    if (dlg.ShowModal() == wxID_OK && !dlg.GetValue().Trim().IsEmpty()) {
+      UpdateMarkers();
+      m_Markers.Add(position, dlg.GetValue().Trim());
+      if (!m_Markers.Save(m_LoadedPath))
+        wxMessageBox(
+          _("Could not save the markers."),
+          _("Add marker"),
+          wxOK | wxICON_ERROR,
+          this);
+      RebuildMarkerButtons();
+    }
+  }
+  UpdateState();
+}
+
+void GOMidiPlaylistDialog::OnEditMarkers(wxCommandEvent &event) {
+  GOMidiPlayer *pPlayer = r_host.GetMidiPlayer();
+
+  if (!m_LoadedPath.IsEmpty()) {
+    const wxString path = m_LoadedPath;
+
+    UpdateMarkers();
+
+    GOMidiMarkersDialog dlg(
+      this,
+      m_Markers,
+      pPlayer ? pPlayer->GetTempoPercent() : 100,
+      [this](double position) { SeekTo(position); });
+
+    dlg.ShowModal();
+    if (!m_Markers.Save(path))
+      wxMessageBox(
+        _("Could not save the markers."),
+        _("Markers"),
+        wxOK | wxICON_ERROR,
+        this);
+    RebuildMarkerButtons();
+  }
+  UpdateState();
 }
 
 bool GOMidiPlaylistDialog::IsAutoAdvance() const {

@@ -97,6 +97,8 @@ gui/dialogs/settings/GOSettingsReverb.cpp
 gui/dialogs/settings/GOSettingsTemperaments.cpp
 gui/dialogs/GOMidiChannelMappingDialog.cpp
 gui/dialogs/GOMidiPlaylistDialog.cpp
+gui/dialogs/GOMidiMarkersDialog.cpp
+gui/dialogs/GOMidiListEditorDialog.cpp
 gui/dialogs/GORemoteDialog.cpp
 remote/GORemotePage.cpp
 remote/GORemoteController.cpp
@@ -171,6 +173,8 @@ midi/events/GOMidiWxEvent.cpp
 midi/events/GORodgers.cpp
 midi/files/GOMidiFileReader.cpp
 midi/files/GOMidiFileTimeScaler.cpp
+midi/playlist/GOMidiList.cpp
+midi/playlist/GOMidiMarkers.cpp
 midi/objects/GOMidiObject.cpp
 midi/objects/GOMidiObjectContext.cpp
 midi/objects/GOMidiObjectWithDivision.cpp
