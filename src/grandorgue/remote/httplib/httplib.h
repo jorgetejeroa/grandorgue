@@ -5877,7 +5877,9 @@ inline bool is_websocket_upgrade(const Request &req) {
 
 // Unpredictable bytes for masking keys (RFC 6455 Section 5.3) and nonces
 inline void fill_random_bytes(unsigned char *out, size_t n) {
-  thread_local std::random_device rd;
+  // GrandOrgue: no thread_local with a destructor, it needs
+  // __cxa_thread_atexit that the bundled MinGW runtime does not export
+  std::random_device rd;
   size_t filled = 0;
   while (filled < n) {
     auto v = rd();
@@ -6272,7 +6274,7 @@ inline bool parse_trailers(stream_line_reader &line_reader, Headers &dest,
   // chunked transfer coding data without the final CRLF.
 
   // RFC 7230 Section 4.1.2 - Headers prohibited in trailers
-  thread_local case_ignore::unordered_set<std::string> prohibited_trailers = {
+  static const case_ignore::unordered_set<std::string> prohibited_trailers = {
       "transfer-encoding",
       "content-length",
       "host",
@@ -13767,7 +13769,7 @@ inline Server &Server::Options(const std::string &pattern, Handler handler) {
 }
 
 inline const std::set<std::string> &Server::builtin_methods() {
-  thread_local const std::set<std::string> methods{
+  static const std::set<std::string> methods{
       "GET",     "HEAD",    "POST",  "PUT",   "DELETE",
       "CONNECT", "OPTIONS", "TRACE", "PATCH", "PRI"};
   return methods;
