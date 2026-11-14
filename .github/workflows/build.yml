@@ -234,6 +234,24 @@ jobs:
         ""
         ${{needs.calc_ver.outputs.asan_flag}}
 
+    # The bundled MinGW C++ runtime does not export the emulated thread local
+    # variables of libstdc++ (used by std::call_once, std::future and
+    # thread_local with destructors): GrandOrgue.exe would not start
+    - name: Check the Windows executable imports
+      if: matrix.for == 'win64'
+      shell: bash
+      run: |
+        EXE=$(find build/win64 -name GrandOrgue.exe | head -n 1)
+        OBJDUMP=$(command -v x86_64-w64-mingw32-objdump || command -v objdump)
+        echo "Checking $EXE with $OBJDUMP"
+        test -n "$EXE"
+        "$OBJDUMP" -p "$EXE" > imports.txt
+        grep -c "DLL Name" imports.txt
+        if grep -E "__emutls_v\.|__cxa_thread_atexit" imports.txt; then
+          echo "GrandOrgue.exe imports symbols missing from the bundled runtime" >&2
+          exit 1
+        fi
+
     - name: Upload result
       uses: nanoufo/action-upload-artifacts-and-release-assets@v2
       with:

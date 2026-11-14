@@ -16,8 +16,10 @@
 #include "GORemoteServer.h"
 
 #include <chrono>
-#include <future>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
+#include <utility>
 
 #include <wx/event.h>
 
@@ -41,22 +43,35 @@ struct GORemoteServer::Impl {
   std::string CallInMainThread(
     const std::string &action,
     const std::map<std::string, std::string> &params) {
-    auto oPromise = std::make_shared<std::promise<std::string>>();
-    std::future<std::string> answer = oPromise->get_future();
-    Handler handler = m_handler;
-    std::string result;
+    // The answer is passed with a mutex and a condition variable, not with
+    // std::promise/std::future: they use std::call_once, whose thread local
+    // variables are not exported by the bundled MinGW C++ runtime
+    struct Answer {
+      std::mutex m_mutex;
+      std::condition_variable m_condition;
+      bool m_IsReady = false;
+      std::string m_text;
+    };
 
-    r_MainThreadHandler.CallAfter([oPromise, handler, action, params]() {
-      oPromise->set_value(handler(action, params));
+    auto oAnswer = std::make_shared<Answer>();
+    Handler handler = m_handler;
+    std::string result = "{\"error\":\"busy\"}";
+
+    r_MainThreadHandler.CallAfter([oAnswer, handler, action, params]() {
+      std::string text = handler(action, params);
+      std::lock_guard<std::mutex> lock(oAnswer->m_mutex);
+
+      oAnswer->m_text = std::move(text);
+      oAnswer->m_IsReady = true;
+      oAnswer->m_condition.notify_all();
     });
-    result = "{\"error\":\"busy\"}";
-    if (answer.wait_for(MAIN_THREAD_TIMEOUT) == std::future_status::ready) {
-      try {
-        result = answer.get();
-      } catch (const std::future_error &) {
-        // the main window has gone and dropped the call
-      }
-    }
+
+    std::unique_lock<std::mutex> lock(oAnswer->m_mutex);
+
+    if (oAnswer->m_condition.wait_for(lock, MAIN_THREAD_TIMEOUT, [&oAnswer]() {
+          return oAnswer->m_IsReady;
+        }))
+      result = oAnswer->m_text;
     return result;
   }
 
