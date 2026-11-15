@@ -74,6 +74,7 @@ static bool scale_track(
   size_t pos,
   size_t end,
   double timeFactor,
+  int semitones,
   std::vector<uint8_t> &out) {
   bool isOk = true;
   uint64_t absTime = 0;
@@ -82,32 +83,21 @@ static bool scale_track(
 
   while (isOk && pos < end) {
     uint32_t delta;
+    std::vector<uint8_t> event; // the event without its delta time
+    bool isKept = true;
 
     isOk = read_vlq(data, end, pos, delta) && pos < end;
     if (isOk) {
-      absTime += delta;
-
-      const uint64_t scaledAbsTime
-        = (uint64_t)std::llround((double)absTime * timeFactor);
-      const uint64_t newDelta
-        = scaledAbsTime > newAbsTime ? scaledAbsTime - newAbsTime : 0;
-
-      isOk = newDelta <= 0x0FFFFFFF;
-      newAbsTime += newDelta;
-      write_vlq(out, (uint32_t)newDelta);
-    }
-    if (isOk) {
       // with running status the status byte is omitted and the previous one
-      // of a channel message is used
+      // of a channel message is used. The output always repeats the status,
+      // so events may be left out
       const bool hasStatusByte = data[pos] & 0x80;
       const uint8_t status = hasStatusByte ? data[pos] : runningStatus;
 
-      if (hasStatusByte) {
-        out.push_back(status);
+      absTime += delta;
+      if (hasStatusByte)
         pos++;
-      }
       isOk = status & 0x80;
-
       if (!isOk) {
         // data byte without any status
       } else if (status == 0xFF) {
@@ -119,7 +109,8 @@ static bool scale_track(
         pos++; // type
         isOk = pos < end && read_vlq(data, end, pos, len) && pos + len <= end;
         if (isOk) {
-          copy_bytes(data, start, pos + len - start, out);
+          event.push_back(status);
+          copy_bytes(data, start, pos + len - start, event);
           pos += len;
         }
       } else if (status == 0xF0 || status == 0xF7) {
@@ -130,7 +121,8 @@ static bool scale_track(
         runningStatus = 0;
         isOk = read_vlq(data, end, pos, len) && pos + len <= end;
         if (isOk) {
-          copy_bytes(data, start, pos + len - start, out);
+          event.push_back(status);
+          copy_bytes(data, start, pos + len - start, event);
           pos += len;
         }
       } else {
@@ -141,10 +133,30 @@ static bool scale_track(
         runningStatus = status;
         isOk = pos + len <= end;
         if (isOk) {
-          copy_bytes(data, pos, len, out);
+          event.push_back(status);
+          copy_bytes(data, pos, len, event);
           pos += len;
+          // note off, note on and key pressure carry a key to transpose. A
+          // note moved out of the MIDI range is left out
+          if (type == 0x80 || type == 0x90 || type == 0xA0) {
+            const int key = (int)event[1] + semitones;
+
+            isKept = key >= 0 && key <= 127;
+            event[1] = (uint8_t)(isKept ? key : 0);
+          }
         }
       }
+    }
+    if (isOk && isKept) {
+      const uint64_t scaledAbsTime
+        = (uint64_t)std::llround((double)absTime * timeFactor);
+      const uint64_t newDelta
+        = scaledAbsTime > newAbsTime ? scaledAbsTime - newAbsTime : 0;
+
+      isOk = newDelta <= 0x0FFFFFFF;
+      newAbsTime += newDelta;
+      write_vlq(out, (uint32_t)newDelta);
+      out.insert(out.end(), event.begin(), event.end());
     }
   }
   return isOk;
@@ -153,6 +165,7 @@ static bool scale_track(
 bool GOMidiFileTimeScaler::scaleData(
   const std::vector<uint8_t> &data,
   double timeFactor,
+  int semitones,
   std::vector<uint8_t> &outData) {
   bool isOk = timeFactor > 0 && data.size() >= CHUNK_HEADER_LEN + 6
     && !memcmp(data.data(), "MThd", 4);
@@ -172,7 +185,8 @@ bool GOMidiFileTimeScaler::scaleData(
         const size_t outHeaderPos = outData.size();
 
         copy_bytes(data, pos, CHUNK_HEADER_LEN, outData);
-        isOk = scale_track(data, contentPos, contentEnd, timeFactor, outData);
+        isOk = scale_track(
+          data, contentPos, contentEnd, timeFactor, semitones, outData);
         if (isOk)
           write_be32(
             outData,
@@ -188,7 +202,10 @@ bool GOMidiFileTimeScaler::scaleData(
 }
 
 bool GOMidiFileTimeScaler::scaleFile(
-  const wxString &inPath, const wxString &outPath, double timeFactor) {
+  const wxString &inPath,
+  const wxString &outPath,
+  double timeFactor,
+  int semitones) {
   bool isOk = false;
   std::vector<uint8_t> data;
   std::vector<uint8_t> outData;
@@ -203,7 +220,7 @@ bool GOMidiFileTimeScaler::scaleFile(
     }
     inFile.Close();
   }
-  isOk = isOk && scaleData(data, timeFactor, outData);
+  isOk = isOk && scaleData(data, timeFactor, semitones, outData);
   if (isOk) {
     // write to a temporary file first, so the original is never left damaged
     const wxString tmpPath = outPath + wxT(".tmp");

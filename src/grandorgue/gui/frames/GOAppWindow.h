@@ -190,6 +190,8 @@ private:
   GOMidiPlaylistDialog &EnsureMidiPlaylist() override;
   int GetVolume() override;
   void SetVolume(int volume) override;
+  int GetTranspose() override;
+  void SetTranspose(int semitones) override;
 
   // GOMidiPlaylistDialog::Host
   GOMidiPlayer *GetMidiPlayer() override;

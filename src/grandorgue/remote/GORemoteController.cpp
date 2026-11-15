@@ -10,13 +10,16 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include <wx/dir.h>
 #include <wx/filename.h>
+#include <wx/intl.h>
 
 #include "combinations/control/GOGeneralButtonControl.h"
 #include "control/GOButtonControl.h"
 #include "control/GOLabelControl.h"
 #include "gui/dialogs/GOMidiPlaylistDialog.h"
 #include "midi/GOMidiPlayer.h"
+#include "midi/playlist/GOMidiList.h"
 
 #include "GOOrganController.h"
 
@@ -165,6 +168,19 @@ void GORemoteController::Execute(
     if (volume > 20)
       volume = 20;
     r_host.SetVolume((int)volume);
+  } else if (action == "transpose") {
+    long semitones = get_int(params, "v", r_host.GetTranspose());
+
+    if (semitones < -11)
+      semitones = -11;
+    if (semitones > 11)
+      semitones = 11;
+    r_host.SetTranspose((int)semitones);
+  } else if (action == "setfolder") {
+    const auto it = params.find("p");
+
+    if (it != params.end())
+      playlist.SetFolder(wxString::FromUTF8(it->second));
   } else if (action == "seqprev")
     push_button(pController, wxT("Prev"));
   else if (action == "seqnext")
@@ -259,6 +275,18 @@ std::string GORemoteController::GetStateJson() {
   // the volume
   json.Key("volume");
   json.Value((long long)r_host.GetVolume());
+  json.Key("transpose");
+  json.Value((long long)r_host.GetTranspose());
+
+  // the playlist folder
+  const wxFileName folderName = wxFileName::DirName(playlist.GetFolder());
+
+  json.Key("folder");
+  json.Value(playlist.GetFolder());
+  json.Key("folderName");
+  json.Value(
+    folderName.GetDirs().IsEmpty() ? playlist.GetFolder()
+                                   : folderName.GetDirs().Last());
 
   // the combinations
   GOLabelControl *pSeqLabel
@@ -298,9 +326,87 @@ std::string GORemoteController::GetStateJson() {
   return json.GetText();
 }
 
+std::string GORemoteController::GetBrowseJson(const std::string &path) {
+  const wxString folder = path.empty() ? r_host.EnsureMidiPlaylist().GetFolder()
+                                       : wxString::FromUTF8(path);
+  wxFileName dirName = wxFileName::DirName(folder);
+  JsonWriter json;
+
+  dirName.Normalize(wxPATH_NORM_DOTS | wxPATH_NORM_ABSOLUTE);
+
+  const wxString fullPath = dirName.GetPath(wxPATH_GET_VOLUME);
+  // the folders of the playlist itself are not shown
+  const wxString listsName
+    = wxFileName(GOMidiList::getListsDir(fullPath)).GetFullName();
+  const wxString originalsName = _("Originals");
+  wxArrayString midiFiles;
+  wxDir dir;
+
+  json.BeginObject();
+  json.Key("path");
+  json.Value(fullPath);
+  json.Key("name");
+  json.Value(dirName.GetDirs().IsEmpty() ? fullPath : dirName.GetDirs().Last());
+  json.Key("parent");
+  if (dirName.GetDirCount() > 0) {
+    wxFileName parent = dirName;
+
+    parent.RemoveLastDir();
+    json.Value(parent.GetPath(wxPATH_GET_VOLUME | wxPATH_GET_SEPARATOR));
+  } else
+    json.Null();
+  if (wxDir::Exists(fullPath))
+    wxDir::GetAllFiles(fullPath, &midiFiles, wxT("*.mid"), wxDIR_FILES);
+  json.Key("pieces");
+  json.Value((long long)midiFiles.GetCount());
+  json.Key("folders");
+  json.BeginArray();
+  if (wxDir::Exists(fullPath) && dir.Open(fullPath)) {
+    wxArrayString names;
+    wxString name;
+
+    for (bool isFound = dir.GetFirst(&name, wxEmptyString, wxDIR_DIRS); isFound;
+         isFound = dir.GetNext(&name))
+      if (name != listsName && name != originalsName)
+        names.Add(name);
+    names.Sort(
+      [](const wxString &a, const wxString &b) { return a.CmpNoCase(b); });
+    for (const wxString &subName : names) {
+      wxFileName subDir = dirName;
+
+      subDir.AppendDir(subName);
+
+      const wxString subPath = subDir.GetPath(wxPATH_GET_VOLUME);
+      wxArrayString subFiles;
+
+      wxDir::GetAllFiles(subPath, &subFiles, wxT("*.mid"), wxDIR_FILES);
+      json.BeginObject();
+      json.Key("name");
+      json.Value(subName);
+      json.Key("path");
+      json.Value(subPath);
+      json.Key("pieces");
+      json.Value((long long)subFiles.GetCount());
+      json.EndObject();
+    }
+  }
+  json.EndArray();
+  json.EndObject();
+  return json.GetText();
+}
+
 std::string GORemoteController::Handle(
   const std::string &action, const std::map<std::string, std::string> &params) {
-  if (action != "state")
-    Execute(action, params);
-  return GetStateJson();
+  std::string result;
+
+  if (action == "browse") {
+    const auto it = params.find("p");
+
+    result = GetBrowseJson(it != params.end() ? it->second : std::string());
+  } else {
+    if (action != "state")
+      Execute(action, params);
+    result = GetStateJson();
+  }
+  return result;
 }

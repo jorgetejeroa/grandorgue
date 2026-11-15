@@ -273,8 +273,8 @@ GOMidiPlaylistDialog::GOMidiPlaylistDialog(
     0,
     wxRIGHT,
     12);
-  m_SaveTempoButton
-    = new wxButton(this, ID_PLAYLIST_SAVE_TEMPO, _("Save at this tempo"));
+  m_SaveTempoButton = new wxButton(
+    this, ID_PLAYLIST_SAVE_TEMPO, _("Save with this tempo and key"));
   tempoSizer->Add(m_SaveTempoButton);
   topSizer->Add(tempoSizer, 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
@@ -539,7 +539,7 @@ void GOMidiPlaylistDialog::UpdateState() {
   UpdateMarkers();
   m_SaveTempoButton->Enable(
     player && !m_LoadedPath.IsEmpty() && !player->IsPlaying()
-    && player->GetTempoPercent() != 100);
+    && (player->GetTempoPercent() != 100 || r_host.GetTranspose() != 0));
   UpdateTimeline();
 }
 
@@ -618,6 +618,7 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
     const wxString path = m_LoadedPath;
     const wxFileName fileName(path);
     const unsigned tempo = pPlayer->GetTempoPercent();
+    const int semitones = r_host.GetTranspose();
     const wxString backupDirName = _("Originals");
     const wxString backupDir
       = fileName.GetPath() + wxFileName::GetPathSeparator() + backupDirName;
@@ -627,14 +628,16 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
     if (
       wxMessageBox(
         wxString::Format(
-          _("The piece \"%s\" will be saved with the tempo %u%%.\n\n"
+          _("The piece \"%s\" will be saved with the tempo %u%% and the "
+            "transposition %+d semitones.\n\n"
             "A copy of the original file is kept in the subfolder \"%s\" "
             "(only the first time, so it is always the original "
             "recording).\n\nContinue?"),
           fileName.GetName(),
           tempo,
+          semitones,
           backupDirName),
-        _("Save at this tempo"),
+        _("Save with this tempo and key"),
         wxYES_NO | wxICON_QUESTION,
         this)
       == wxYES) {
@@ -648,13 +651,14 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
             _("Could not make the copy of the original file in \"%s\". "
               "Nothing has been changed."),
             backupDir),
-          _("Save at this tempo"),
+          _("Save with this tempo and key"),
           wxOK | wxICON_ERROR,
           this);
-      else if (!GOMidiFileTimeScaler::scaleFile(path, path, 100.0 / tempo))
+      else if (!GOMidiFileTimeScaler::scaleFile(
+                 path, path, 100.0 / tempo, semitones))
         wxMessageBox(
           _("Could not save the piece. The file has not been changed."),
-          _("Save at this tempo"),
+          _("Save with this tempo and key"),
           wxOK | wxICON_ERROR,
           this);
       else {
@@ -663,7 +667,7 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
 
         // the markers move with the music: keep the original ones too
         markers.Load(path);
-        if (markers.GetCount() > 0) {
+        if (markers.GetCount() > 0 && tempo != 100) {
           const wxString markersPath = GOMidiMarkers::getMarkersPath(path);
           const wxString markersBackup = backupDir
             + wxFileName::GetPathSeparator()
@@ -675,8 +679,10 @@ void GOMidiPlaylistDialog::OnSaveTempo(wxCommandEvent &event) {
           markers.Save(path);
         }
         m_MarkersPath = wxEmptyString; // read them again
-        // the file now has the new tempo: play it at 100% from now on
+        // the file now has the new tempo and key: play it at 100% and
+        // without transposition from now on
         pPlayer->SetTempoPercent(100);
+        r_host.SetTranspose(0);
         LoadIndex(loadedIndex);
       }
     }
@@ -697,12 +703,23 @@ void GOMidiPlaylistDialog::OnChooseFolder(wxCommandEvent &event) {
     r_config.MidiPlaylistPath(),
     wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
 
-  if (dlg.ShowModal() == wxID_OK) {
-    r_config.MidiPlaylistPath(dlg.GetPath());
+  if (dlg.ShowModal() == wxID_OK)
+    SetFolder(dlg.GetPath());
+}
+
+void GOMidiPlaylistDialog::SetFolder(const wxString &folder) {
+  if (wxDir::Exists(folder)) {
+    r_config.MidiPlaylistPath(folder);
     r_config.Flush();
+    // the prepared lists belong to the old folder
+    m_CurrentListPath = wxEmptyString;
     FillList();
-    UpdateState();
   }
+  UpdateState();
+}
+
+wxString GOMidiPlaylistDialog::GetFolder() const {
+  return r_config.MidiPlaylistPath();
 }
 
 void GOMidiPlaylistDialog::OnRefreshList(wxCommandEvent &event) {

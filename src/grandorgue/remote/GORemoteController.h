@@ -24,6 +24,10 @@ class GOOrganController;
  *   tempo (d), tempo100, seek (ms), auto (on=0/1), repeat (on=0/1),
  *   list (i, -1 = all pieces), refresh: the playlist
  * - vol (v): the volume in dB
+ * - transpose (v): the transposition in semitones
+ * - browse (p, optional): no command, describes the subfolders of a folder
+ *   (default: the playlist folder) instead of the state
+ * - setfolder (p): uses another folder for the playlist
  * - seqprev, seqnext, seqhome: the combination sequencer
  * - general (n = 1..50), bankprev, banknext, gc: the banked generals
  * - ogeneral (i): the generals defined by the organ
@@ -43,6 +47,10 @@ public:
     virtual int GetVolume() = 0;
     /** Sets the volume like the volume control of the main window */
     virtual void SetVolume(int volume) = 0;
+    /** @return the transposition in semitones */
+    virtual int GetTranspose() = 0;
+    /** Sets the transposition like the control of the main window */
+    virtual void SetTranspose(int semitones) = 0;
   };
 
 private:
@@ -52,6 +60,7 @@ private:
     const std::string &action,
     const std::map<std::string, std::string> &params);
   std::string GetStateJson();
+  std::string GetBrowseJson(const std::string &path);
 
 public:
   GORemoteController(Host &host) : r_host(host) {}

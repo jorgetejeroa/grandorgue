@@ -70,6 +70,11 @@ public:
      * @param gain the gain in dB
      */
     virtual void SetGain(int gain) = 0;
+
+    /** @return the transposition of the organ in semitones */
+    virtual int GetTranspose() = 0;
+    /** Sets the transposition of the organ, used after saving a piece */
+    virtual void SetTranspose(int semitones) = 0;
   };
 
 private:
@@ -224,6 +229,13 @@ public:
   void SelectList(int index);
   /** Reads the folder again */
   void RefreshList();
+  /**
+   * Shows the pieces of another folder (and remembers it)
+   * @param folder the folder with the MIDI files
+   */
+  void SetFolder(const wxString &folder);
+  /** @return the folder with the MIDI files */
+  wxString GetFolder() const;
   /**
    * Lowers the volume gradually, stops the piece and restores the volume
    * after the sound has died away

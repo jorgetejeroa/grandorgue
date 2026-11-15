@@ -4697,3 +4697,20 @@ msgstr "Acción de gracias"
 
 msgid "Recessional"
 msgstr "Final"
+
+msgid "Save with this tempo and key"
+msgstr "Guardar con este tempo y tono"
+
+#, c-format
+msgid ""
+"The piece \"%s\" will be saved with the tempo %u%% and the transposition %+d semitones.\n"
+"\n"
+"A copy of the original file is kept in the subfolder \"%s\" (only the first time, so it is always the original recording).\n"
+"\n"
+"Continue?"
+msgstr ""
+"La pieza \"%s\" se guardará con el tempo %u%% y la transposición %+d semitonos.\n"
+"\n"
+"Se guarda una copia del archivo original en la subcarpeta \"%s\" (solo la primera vez, así que siempre es la grabación original).\n"
+"\n"
+"¿Continuar?"

@@ -1255,6 +1255,18 @@ void GOAppWindow::SetVolume(int volume) {
     pGauge->ResetClip();
 }
 
+int GOAppWindow::GetTranspose() { return r_config.Transpose(); }
+
+void GOAppWindow::SetTranspose(int semitones) {
+  if (p_OrganController)
+    // updates the setting and the toolbar control too
+    p_OrganController->GetSetter()->SetTranspose(semitones);
+  else {
+    r_config.Transpose(semitones);
+    m_Transpose->SetValue(semitones);
+  }
+}
+
 std::string GOAppWindow::HandleRemoteRequest(
   const std::string &action, const std::map<std::string, std::string> &params) {
   return m_RemoteController.Handle(action, params);

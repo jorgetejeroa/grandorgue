@@ -90,6 +90,11 @@ input[type=range] { width: 100%; height: 36px; accent-color: var(--gold); margin
 .seq { font-size: 30px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; flex: 0 0 110px; }
 h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 .hidden { display: none !important; }
+.folderRow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.folderRow .fname { flex: 1; font-weight: 600; overflow-wrap: anywhere; }
+.folderRow button { flex: none; min-height: 44px; }
+#browser .path { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; margin-bottom: 8px; }
+#browser .list .count { color: var(--muted); font-size: 14px; flex: none; padding-right: 6px; }
 .tl { position: relative; }
 .ticks { position: absolute; left: 0; right: 0; top: 0; height: 8px; pointer-events: none; }
 .ticks span { position: absolute; top: 0; width: 3px; height: 10px; margin-left: -1px; background: var(--gold2); border-radius: 2px; }
@@ -158,6 +163,16 @@ select { width: 100%; font: inherit; color: var(--text); background: var(--panel
       <span class="label"></span>
       <button id="tempo100">Tempo normal</button>
     </div>
+    <div class="row mt">
+      <span class="label">Tono</span>
+      <button id="keyDown">−</button>
+      <span class="value" id="transpose">0</span>
+      <button id="keyUp">+</button>
+    </div>
+    <div class="row mt">
+      <span class="label"></span>
+      <button id="key0">Tono original</button>
+    </div>
   </div>
 
   <div class="tabs">
@@ -166,12 +181,29 @@ select { width: 100%; font: inherit; color: var(--text); background: var(--panel
   </div>
 
   <div class="card" id="listCard">
+    <div class="folderRow">
+      <span class="label" style="min-width:0">Carpeta</span>
+      <span class="fname" id="folderName">—</span>
+      <button id="changeFolder">Cambiar</button>
+    </div>
     <select id="listSelect" aria-label="Lista"></select>
     <label class="switch"><input type="checkbox" id="auto"> Pasar sola a la siguiente pieza</label>
     <label class="switch"><input type="checkbox" id="repeat"> Repetir la lista al terminar</label>
     <ul class="list" id="list"></ul>
     <p class="muted hidden" id="emptyList">No hay piezas en la carpeta de la lista.</p>
     <button class="mt" id="refresh" style="width:100%">Actualizar la lista</button>
+  </div>
+
+  <div class="card hidden" id="browser">
+    <h2>Elegir carpeta</h2>
+    <div class="path" id="browserPath"></div>
+    <button id="browserUp" style="width:100%">⬆ Subir a la carpeta superior</button>
+    <ul class="list mt" id="browserList"></ul>
+    <p class="muted hidden" id="browserEmpty">No hay subcarpetas aquí.</p>
+    <div class="row mt">
+      <button id="browserCancel">Cancelar</button>
+      <button id="browserUse" class="gold">Usar esta carpeta</button>
+    </div>
   </div>
 
   <div id="combiCard" class="hidden">
@@ -417,6 +449,9 @@ select { width: 100%; font: inherit; color: var(--text); background: var(--panel
     $("next").disabled = !hasOrgan || state.selected < 0 || state.selected >= state.files.length - 1;
 
     $("volume").textContent = state.volume + " dB";
+    var t = state.transpose || 0;
+    $("transpose").textContent = (t > 0 ? "+" : "") + t;
+    $("folderName").textContent = state.folderName || "—";
     $("tempo").textContent = state.tempo + "%";
     $("auto").checked = !!state.autoAdvance;
     $("repeat").checked = !!state.repeat;
@@ -439,6 +474,52 @@ select { width: 100%; font: inherit; color: var(--text); background: var(--panel
   $("tempoDown").onclick = function () { cmd("tempo", {d: -5}); };
   $("tempoUp").onclick = function () { cmd("tempo", {d: 5}); };
   $("tempo100").onclick = function () { cmd("tempo100"); };
+  $("keyDown").onclick = function () { if (state) cmd("transpose", {v: (state.transpose || 0) - 1}); };
+  $("keyUp").onclick = function () { if (state) cmd("transpose", {v: (state.transpose || 0) + 1}); };
+  $("key0").onclick = function () { cmd("transpose", {v: 0}); };
+
+  // the folder browser
+  var browsePath = null;
+  function showBrowser(on) {
+    $("browser").classList.toggle("hidden", !on);
+    $("listCard").classList.toggle("hidden", on);
+    if (on) window.scrollTo(0, $("browser").offsetTop - 10);
+  }
+  function browse(path) {
+    var params = {a: "browse"};
+    if (path) params.p = path;
+    request("/api/state", params).then(function (b) {
+      browsePath = b.path;
+      $("browserPath").textContent = b.path + "  ·  " + b.pieces + " piezas";
+      $("browserUp").disabled = !b.parent;
+      $("browserUp").onclick = function () { if (b.parent) browse(b.parent); };
+      var list = $("browserList");
+      list.innerHTML = "";
+      $("browserEmpty").classList.toggle("hidden", b.folders.length > 0);
+      b.folders.forEach(function (f) {
+        var li = document.createElement("li");
+        var span = document.createElement("span");
+        span.className = "name";
+        span.textContent = "📁 " + f.name;
+        span.onclick = function () { browse(f.path); };
+        var count = document.createElement("span");
+        count.className = "count";
+        count.textContent = f.pieces ? f.pieces + " ♪" : "";
+        li.appendChild(span);
+        li.appendChild(count);
+        list.appendChild(li);
+      });
+      showBrowser(true);
+    }).catch(function () { $("dot").classList.remove("ok"); });
+  }
+  $("changeFolder").onclick = function () { browse(state ? state.folder : null); };
+  $("browserCancel").onclick = function () { showBrowser(false); };
+  $("browserUse").onclick = function () {
+    if (browsePath) {
+      filesKey = ""; listsKey = "";
+      cmd("setfolder", {p: browsePath}).then(function () { showBrowser(false); });
+    }
+  };
   $("auto").onchange = function () { cmd("auto", {on: this.checked ? 1 : 0}); };
   $("repeat").onchange = function () { cmd("repeat", {on: this.checked ? 1 : 0}); };
   $("listSelect").onchange = function () { filesKey = ""; cmd("list", {i: this.value}); };
@@ -456,10 +537,12 @@ select { width: 100%; font: inherit; color: var(--text); background: var(--panel
   $("tabList").onclick = function () {
     $("tabList").classList.add("on"); $("tabCombi").classList.remove("on");
     $("listCard").classList.remove("hidden"); $("combiCard").classList.add("hidden");
+    $("browser").classList.add("hidden");
   };
   $("tabCombi").onclick = function () {
     $("tabCombi").classList.add("on"); $("tabList").classList.remove("on");
     $("combiCard").classList.remove("hidden"); $("listCard").classList.add("hidden");
+    $("browser").classList.add("hidden");
   };
 
   // the timeline: show the time while dragging, jump when released
