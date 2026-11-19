@@ -30,10 +30,23 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Compilar el APK
-        run: gradle assembleRelease --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon 2>&1 | tee build.log
+
+      - name: Publicar los errores de compilación
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          { grep -E "^e: |error:|What went wrong|FAILURE|Exception" build.log | head -150; echo; echo '--- final ---'; tail -60 build.log; } > errores.txt || true
+          gh release create "errores-${{ github.run_number }}" --prerelease --target "${{ github.sha }}" \
+            --title "Errores de compilación ${{ github.run_number }}" --notes-file errores.txt || true
 
       - name: Preparar el archivo
-        run: cp app/build/outputs/apk/release/app-release.apk "OrganoPraeludium-0.1.${{ github.run_number }}.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "OrganoPraeludium-0.2.${{ github.run_number }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -44,8 +57,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "praeludium-0.1.${{ github.run_number }}" \
-            "OrganoPraeludium-0.1.${{ github.run_number }}.apk" \
+          gh release create "praeludium-0.2.${{ github.run_number }}" \
+            "OrganoPraeludium-0.2.${{ github.run_number }}.apk" \
             --target "${{ github.sha }}" \
-            --title "Órgano Praeludium 0.1.${{ github.run_number }}" \
+            --title "Órgano Praeludium 0.2.${{ github.run_number }}" \
             --notes "App para la tablet. Descarga el archivo .apk desde la tablet e instálalo (encima de la versión anterior, sin desinstalar)."

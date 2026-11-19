@@ -11,13 +11,7 @@ class Recorder {
     private var startNs = 0L
     private val events = ArrayList<Pair<Long, ByteArray>>()
     private val held = LinkedHashSet<Int>()
-
-    // Estado del lector de bytes MIDI
-    private var status = 0
-    private var expected = 0
-    private val buf = ArrayList<Byte>()
-    private var inSysex = false
-    private val sysex = ArrayList<Byte>()
+    private val parser = MidiParser { msg, t -> add(t, msg) }
 
     val elapsedSeconds: Double
         get() = if (recording) (System.nanoTime() - startNs) / 1e9 else 0.0
@@ -29,11 +23,7 @@ class Recorder {
         synchronized(lock) {
             events.clear()
             held.clear()
-            status = 0
-            expected = 0
-            buf.clear()
-            inSysex = false
-            sysex.clear()
+            parser.reset()
             startNs = System.nanoTime()
             recording = true
         }
@@ -44,48 +34,7 @@ class Recorder {
         synchronized(lock) {
             if (!recording) return
             val t = (if (timestamp > 0) timestamp else System.nanoTime()).coerceAtLeast(startNs)
-            for (i in offset until offset + count) {
-                val b = data[i].toInt() and 0xFF
-                when {
-                    b >= 0xF8 -> { /* reloj, active sensing, start/stop: no se graban */ }
-                    b == 0xF0 -> {
-                        inSysex = true
-                        sysex.clear()
-                        sysex.add(0xF0.toByte())
-                    }
-                    b == 0xF7 -> {
-                        if (inSysex) {
-                            sysex.add(0xF7.toByte())
-                            add(t, sysex.toByteArray())
-                            inSysex = false
-                        }
-                    }
-                    b >= 0x80 -> {
-                        inSysex = false
-                        buf.clear()
-                        if (b >= 0xF0) {
-                            status = 0 // mensajes comunes de sistema: no se graban
-                        } else {
-                            status = b
-                            expected = if ((b and 0xF0) == 0xC0 || (b and 0xF0) == 0xD0) 1 else 2
-                        }
-                    }
-                    else -> {
-                        if (inSysex) {
-                            sysex.add(b.toByte())
-                        } else if (status != 0) {
-                            buf.add(b.toByte())
-                            if (buf.size == expected) {
-                                val msg = ByteArray(expected + 1)
-                                msg[0] = status.toByte()
-                                for (j in 0 until expected) msg[j + 1] = buf[j]
-                                buf.clear()
-                                add(t, msg)
-                            }
-                        }
-                    }
-                }
-            }
+            parser.feed(data, offset, count, t)
         }
     }
 

@@ -17,7 +17,9 @@ class MidiLink(
     ctx: Context,
     private val onInput: (ByteArray, Int, Int, Long) -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onDeviceAdded: (MidiDeviceInfo) -> Unit
+    private val onDeviceAdded: (MidiDeviceInfo) -> Unit,
+    private val onConnected: () -> Unit,
+    private val onDisconnected: () -> Unit
 ) {
     val manager = ctx.getSystemService(Context.MIDI_SERVICE) as MidiManager
     private val handler = Handler(Looper.getMainLooper())
@@ -27,6 +29,9 @@ class MidiLink(
     @Volatile private var inPort: MidiInputPort? = null
     private var outPort: MidiOutputPort? = null
     var connectedName: String? = null
+        private set
+    /** true si la desconexión la ha pedido el usuario (no hay que avisar ni reconectar). */
+    @Volatile var userClosed = false
         private set
 
     val isConnected: Boolean get() = inPort != null
@@ -45,9 +50,10 @@ class MidiLink(
             }
 
             override fun onDeviceRemoved(info: MidiDeviceInfo) {
-                if (device?.info?.id == info.id) {
+                if (device != null && device?.info?.id == info.id) {
                     close()
-                    onStatus("Desconectado del órgano")
+                    onStatus("Se ha cortado la conexión con el órgano")
+                    onDisconnected()
                 }
             }
         }, handler)
@@ -103,7 +109,9 @@ class MidiLink(
             return
         }
         connectedName = name
+        userClosed = false
         onStatus("Conectado: $name")
+        onConnected()
     }
 
     fun send(b: ByteArray) {
@@ -115,7 +123,8 @@ class MidiLink(
         }
     }
 
-    fun close() {
+    fun close(byUser: Boolean = false) {
+        if (byUser) userClosed = true
         synchronized(sendLock) {
             try { outPort?.disconnect(receiver) } catch (e: Exception) { }
             try { outPort?.close() } catch (e: Exception) { }

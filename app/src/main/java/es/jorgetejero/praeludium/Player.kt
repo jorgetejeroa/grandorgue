@@ -1,12 +1,18 @@
 package es.jorgetejero.praeludium
 
 import java.util.concurrent.locks.LockSupport
+import kotlin.math.roundToInt
 
 /**
- * Reproductor MIDI con tempo, tono y saltos en la línea de tiempo.
- * Todo lo que suena sale por [send] (la conexión con el órgano).
+ * Reproductor MIDI con tempo, tono, volumen por secciones, repetición de un tramo
+ * y saltos en la línea de tiempo. Todo lo que suena sale por [send].
  */
 class Player(private val send: (ByteArray) -> Unit) {
+
+    companion object {
+        /** Canales de las secciones: Recitativo, Gran Órgano y Pedal. */
+        val SECTIONS = intArrayOf(0, 1, 3)
+    }
 
     private val lock = Any()
 
@@ -17,22 +23,32 @@ class Player(private val send: (ByteArray) -> Unit) {
     @Volatile var tempo = 1.0
     @Volatile var transpose = 0
         private set
-    /** Último volumen general (CC7 del canal 16) enviado al órgano. */
-    @Volatile var mainVolume = 127
-    /** Mientras se termina suavemente, se ignoran los cambios de volumen general que traiga el archivo. */
+    /** Volumen de la app (0..1): escala el volumen de cada sección (CC7 de canales 1, 2 y 4). */
+    @Volatile var volume = 1.0
+        private set
     @Volatile var fading = false
+        private set
+    /** Al parar o terminar, apagar los registros que puso la pieza y volver a la registración manual. */
+    @Volatile var cleanOnStop = true
+    @Volatile var loopStartUs: Double? = null
+        private set
+    @Volatile var loopEndUs: Double? = null
+        private set
 
     var onFinished: (() -> Unit)? = null
+    var onSent: ((ByteArray) -> Unit)? = null
 
     @Volatile private var posUs = 0.0
+    @Volatile private var fadeFactor = 1.0
     private var idx = 0
     private var lastNanos = 0L
     private var pendingSeekUs: Double? = null
+    private var touchedRegistration = false
 
-    /** Notas que el archivo tiene pulsadas en este momento: canal*128+nota → velocidad. */
     private val active = HashMap<Int, Int>()
-    /** Notas que de verdad están sonando en el órgano: canal*128+nota del archivo → nota enviada. */
     private val sounding = HashMap<Int, Int>()
+    private val fileVol = IntArray(16) { -1 }
+    private val played = StopTracker()
 
     private val thread = Thread({ loop() }, "reproductor").apply {
         isDaemon = true
@@ -43,21 +59,27 @@ class Player(private val send: (ByteArray) -> Unit) {
     val positionUs: Double get() = posUs
     val durationUs: Double get() = (song?.durationUs ?: 0L).toDouble()
 
+    // --------------------------------------------------------------- órdenes
+
     fun load(s: Song) {
         synchronized(lock) {
             playing = false
             allOff()
+            if (cleanOnStop) cleanOrgan()
             song = s
             idx = 0
             posUs = 0.0
             pendingSeekUs = null
+            loopStartUs = null
+            loopEndUs = null
+            fileVol.fill(-1)
         }
     }
 
     fun play() {
         synchronized(lock) {
             val s = song ?: return
-            if (idx >= s.size) {
+            if (idx >= s.size && posUs >= s.durationUs) {
                 idx = 0
                 posUs = 0.0
                 active.clear()
@@ -87,6 +109,9 @@ class Player(private val send: (ByteArray) -> Unit) {
             idx = 0
             posUs = 0.0
             pendingSeekUs = null
+            loopStartUs = null
+            loopEndUs = null
+            if (cleanOnStop) cleanOrgan()
         }
     }
 
@@ -107,7 +132,61 @@ class Player(private val send: (ByteArray) -> Unit) {
         }
     }
 
-    // ---------------------------------------------------------------
+    fun setVolume(v: Double) {
+        synchronized(lock) {
+            volume = v.coerceIn(0.0, 1.0)
+            applyVolume()
+        }
+    }
+
+    /** Pone el volumen de la app sin mandar nada al órgano (al abrir la app). */
+    fun setVolumeSilently(percent: Int) {
+        volume = (percent / 100.0).coerceIn(0.0, 1.0)
+    }
+
+    fun setLoop(startUs: Double, endUs: Double) {
+        synchronized(lock) {
+            if (endUs <= startUs) return
+            loopStartUs = startUs
+            loopEndUs = endUs
+        }
+    }
+
+    fun clearLoop() {
+        synchronized(lock) {
+            loopStartUs = null
+            loopEndUs = null
+        }
+    }
+
+    /** Baja el volumen de las secciones en 5 segundos, detiene y lo deja como estaba. */
+    fun fadeOut(onDone: () -> Unit) {
+        if (fading || !playing) return
+        fading = true
+        Thread {
+            try {
+                for (i in 1..50) {
+                    synchronized(lock) {
+                        fadeFactor = 1.0 - i / 50.0
+                        applyVolume()
+                    }
+                    Thread.sleep(100)
+                }
+                stop()
+                Thread.sleep(1500)
+            } catch (e: InterruptedException) {
+            } finally {
+                synchronized(lock) {
+                    fadeFactor = 1.0
+                    applyVolume()
+                }
+                fading = false
+                onDone()
+            }
+        }.start()
+    }
+
+    // --------------------------------------------------------------- bucle
 
     private fun loop() {
         while (true) {
@@ -125,14 +204,20 @@ class Player(private val send: (ByteArray) -> Unit) {
                         val now = System.nanoTime()
                         posUs += (now - lastNanos) / 1000.0 * tempo
                         lastNanos = now
-                        while (idx < s.size && s.timeUs[idx] <= posUs) {
+                        val le = loopEndUs
+                        val ls = loopStartUs
+                        while (idx < s.size && s.timeUs[idx] <= posUs && (le == null || s.timeUs[idx] < le)) {
                             dispatch(s.data[idx])
                             idx++
                         }
-                        if (idx >= s.size) {
+                        if (le != null && ls != null && posUs >= le) {
+                            doSeek(s, ls)
+                            sleepNs = 200_000L
+                        } else if (idx >= s.size) {
                             if (posUs >= s.durationUs) {
                                 playing = false
                                 allOff()
+                                if (cleanOnStop) cleanOrgan()
                                 posUs = s.durationUs.toDouble()
                                 finished = true
                             } else {
@@ -140,7 +225,9 @@ class Player(private val send: (ByteArray) -> Unit) {
                                     .coerceIn(200_000L, 5_000_000L)
                             }
                         } else {
-                            sleepNs = (((s.timeUs[idx] - posUs) / tempo) * 1000.0).toLong()
+                            var next = s.timeUs[idx].toDouble()
+                            if (le != null && le < next) next = le
+                            sleepNs = (((next - posUs) / tempo) * 1000.0).toLong()
                                 .coerceIn(200_000L, 5_000_000L)
                         }
                     }
@@ -150,6 +237,25 @@ class Player(private val send: (ByteArray) -> Unit) {
             }
             if (finished) onFinished?.invoke()
             LockSupport.parkNanos(sleepNs)
+        }
+    }
+
+    // --------------------------------------------------------------- envío
+
+    private fun out(d: ByteArray) {
+        send(d)
+        played.feed(d)
+        onSent?.invoke(d)
+    }
+
+    private fun cc(ch: Int, c: Int, v: Int) = byteArrayOf((0xB0 or ch).toByte(), c.toByte(), v.toByte())
+
+    private fun scaled(v: Int): Int = (v * volume * fadeFactor).roundToInt().coerceIn(0, 127)
+
+    private fun applyVolume() {
+        for (ch in SECTIONS) {
+            val v = if (fileVol[ch] >= 0) fileVol[ch] else 127
+            out(cc(ch, 7, scaled(v)))
         }
     }
 
@@ -173,11 +279,25 @@ class Player(private val send: (ByteArray) -> Unit) {
             }
             return
         }
-        if (type == 0xB0 && d.size >= 3 && ch == 15 && (d[1].toInt() and 0x7F) == 7) {
-            if (fading) return
-            mainVolume = d[2].toInt() and 0x7F
+        dispatchControl(d)
+    }
+
+    /** Todo lo que no son notas: registros, combinaciones, volúmenes, SysEx. */
+    private fun dispatchControl(d: ByteArray) {
+        val status = d[0].toInt() and 0xFF
+        val type = status and 0xF0
+        val ch = status and 0x0F
+        if (type == 0xB0 && d.size >= 3) {
+            val c = d[1].toInt() and 0x7F
+            if (c == 7 && ch != 15) {
+                fileVol[ch] = d[2].toInt() and 0x7F
+                out(cc(ch, 7, scaled(fileVol[ch])))
+                return
+            }
+            if (c == 99 || c == 98 || c == 6 || c == 92) touchedRegistration = true
         }
-        send(d)
+        if (type == 0xC0 && ch == 15) touchedRegistration = true
+        out(d)
     }
 
     private fun noteOn(ch: Int, note: Int, vel: Int) {
@@ -195,7 +315,6 @@ class Player(private val send: (ByteArray) -> Unit) {
         send(byteArrayOf((0x80 or ch).toByte(), k.toByte(), 0))
     }
 
-    /** Vuelve a pulsar las notas que el archivo tiene pulsadas (al continuar, al saltar o al cambiar de tono). */
     private fun resound() {
         for ((key, vel) in active) noteOn(key / 128, key % 128, vel)
     }
@@ -211,7 +330,7 @@ class Player(private val send: (ByteArray) -> Unit) {
     private fun allOff() {
         silenceSounding()
         active.clear()
-        for (ch in 0 until 16) send(byteArrayOf((0xB0 or ch).toByte(), 123, 0))
+        for (ch in 0 until 16) send(cc(ch, 123, 0))
     }
 
     private fun pace(count: Int) {
@@ -221,14 +340,33 @@ class Player(private val send: (ByteArray) -> Unit) {
     }
 
     /**
-     * Salta a un punto: deja el órgano como estaba en ese momento (registros, combinaciones,
-     * volúmenes) y vuelve a pulsar las notas que estaban sonando.
+     * Deja el órgano como marcan sus placas: apaga los registros que encendió la pieza
+     * (el órgano no enciende la luz de las placas con lo que llega por MIDI) y manda el pistón 0.
      */
+    private fun cleanOrgan() {
+        if (!touchedRegistration && played.isEmpty()) return
+        var n = 0
+        for (k in played.stopsOn()) {
+            val ch = k / 16384
+            val bank = (k / 128) % 128
+            val i = k % 128
+            out(cc(ch, 99, 0))
+            out(cc(ch, 98, bank))
+            out(cc(ch, 6, i))
+            pace(++n)
+        }
+        for (ch in played.tremoloChannels()) out(cc(ch, 92, 0))
+        out(cc(15, 0, 64))
+        out(cc(15, 32, 0))
+        out(byteArrayOf(0xCF.toByte(), 0))
+        played.clear()
+        touchedRegistration = false
+    }
+
     private fun doSeek(s: Song, target: Double) {
         silenceSounding()
-        for (ch in 0 until 16) send(byteArrayOf((0xB0 or ch).toByte(), 123, 0))
+        for (ch in 0 until 16) send(cc(ch, 123, 0))
         active.clear()
-        // Controladores normales: solo hace falta el último valor de cada uno.
         val lastCc = LinkedHashMap<Int, ByteArray>()
         val ordered = setOf(0, 6, 32, 38, 96, 97, 98, 99, 100, 101)
         var count = 0
@@ -242,8 +380,8 @@ class Player(private val send: (ByteArray) -> Unit) {
                 when {
                     isNote(type, d) -> {
                         val key = ch * 128 + (d[1].toInt() and 0x7F)
-                        if (type == 0x90 && (d[2].toInt() and 0x7F) > 0) active[key] = d[2].toInt() and 0x7F
-                        else active.remove(key)
+                        val vel = d[2].toInt() and 0x7F
+                        if (type == 0x90 && vel > 0) active[key] = vel else active.remove(key)
                     }
                     type == 0xB0 && d.size >= 3 && (d[1].toInt() and 0x7F) !in ordered -> {
                         val key = ch * 128 + (d[1].toInt() and 0x7F)
@@ -251,8 +389,7 @@ class Player(private val send: (ByteArray) -> Unit) {
                         lastCc[key] = d
                     }
                     else -> {
-                        // Registros (NRPN), combinaciones (Bank + Program Change) y SysEx: en orden.
-                        send(d)
+                        dispatchControl(d)
                         pace(++count)
                     }
                 }
@@ -260,12 +397,7 @@ class Player(private val send: (ByteArray) -> Unit) {
             i++
         }
         for (d in lastCc.values) {
-            val ch = (d[0].toInt() and 0x0F)
-            if (ch == 15 && (d[1].toInt() and 0x7F) == 7) {
-                if (fading) continue
-                mainVolume = d[2].toInt() and 0x7F
-            }
-            send(d)
+            dispatchControl(d)
             pace(++count)
         }
         idx = i
