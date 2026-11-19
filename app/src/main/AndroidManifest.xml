@@ -17,7 +17,7 @@
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
-        android:label="Órgano Praeludium"
+        android:label="Órgano SL 300"
         android:theme="@android:style/Theme.Material.Light.DarkActionBar">
 
         <activity

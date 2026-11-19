@@ -6,15 +6,15 @@ plugins {
 val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 
 android {
-    namespace = "es.jorgetejero.praeludium"
+    namespace = "es.jorgetejero.sl300"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "es.jorgetejero.praeludium"
+        applicationId = "es.jorgetejero.sl300"
         minSdk = 29
         targetSdk = 34
         versionCode = runNumber
-        versionName = "0.2.$runNumber"
+        versionName = "0.1.$runNumber"
     }
 
     signingConfigs {

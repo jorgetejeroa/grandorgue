@@ -1,4 +1,4 @@
-package es.jorgetejero.praeludium
+package es.jorgetejero.sl300
 
 import java.util.concurrent.locks.LockSupport
 import kotlin.math.roundToInt
@@ -10,8 +10,8 @@ import kotlin.math.roundToInt
 class Player(private val send: (ByteArray) -> Unit) {
 
     companion object {
-        /** Canales de las secciones: Recitativo, Gran Órgano y Pedal. */
-        val SECTIONS = intArrayOf(0, 1, 3)
+        /** Canales de las secciones: Recitativo, Grand'Organo, Positivo y Pedal. */
+        val SECTIONS = intArrayOf(0, 1, 2, 3)
     }
 
     private val lock = Any()
@@ -23,12 +23,12 @@ class Player(private val send: (ByteArray) -> Unit) {
     @Volatile var tempo = 1.0
     @Volatile var transpose = 0
         private set
-    /** Volumen de la app (0..1): escala el volumen de cada sección (CC7 de canales 1, 2 y 4). */
+    /** Volumen de la app (0..1): escala el volumen de cada sección (CC7 de los canales 1 a 4). */
     @Volatile var volume = 1.0
         private set
     @Volatile var fading = false
         private set
-    /** Al parar o terminar, apagar los registros que puso la pieza y volver a la registración manual. */
+    /** Al parar o terminar, apagar los registros que puso la pieza. */
     @Volatile var cleanOnStop = true
     @Volatile var loopStartUs: Double? = null
         private set
@@ -294,7 +294,7 @@ class Player(private val send: (ByteArray) -> Unit) {
                 out(cc(ch, 7, scaled(fileVol[ch])))
                 return
             }
-            if (c == 99 || c == 98 || c == 6 || c == 92) touchedRegistration = true
+            if (c == Stops.CC_STOP || c == Stops.CC_TREMOLO) touchedRegistration = true
         }
         if (type == 0xC0 && ch == 15) touchedRegistration = true
         out(d)
@@ -340,25 +340,17 @@ class Player(private val send: (ByteArray) -> Unit) {
     }
 
     /**
-     * Deja el órgano como marcan sus placas: apaga los registros que encendió la pieza
-     * (el órgano no enciende la luz de las placas con lo que llega por MIDI) y manda el pistón 0.
+     * Deja el órgano como estaba: apaga los registros y trémolos que encendió la pieza
+     * (en el SL 300, CC70 con el índice sin el 64; trémolos, CC92 = 0).
      */
     private fun cleanOrgan() {
         if (!touchedRegistration && played.isEmpty()) return
         var n = 0
         for (k in played.stopsOn()) {
-            val ch = k / 16384
-            val bank = (k / 128) % 128
-            val i = k % 128
-            out(cc(ch, 99, 0))
-            out(cc(ch, 98, bank))
-            out(cc(ch, 6, i))
+            out(cc(k / 128, Stops.CC_STOP, k % 128))
             pace(++n)
         }
-        for (ch in played.tremoloChannels()) out(cc(ch, 92, 0))
-        out(cc(15, 0, 64))
-        out(cc(15, 32, 0))
-        out(byteArrayOf(0xCF.toByte(), 0))
+        for (ch in played.tremoloChannels()) out(cc(ch, Stops.CC_TREMOLO, 0))
         played.clear()
         touchedRegistration = false
     }
@@ -368,7 +360,8 @@ class Player(private val send: (ByteArray) -> Unit) {
         for (ch in 0 until 16) send(cc(ch, 123, 0))
         active.clear()
         val lastCc = LinkedHashMap<Int, ByteArray>()
-        val ordered = setOf(0, 6, 32, 38, 96, 97, 98, 99, 100, 101)
+        // CC70: cada valor es un registro distinto, así que se mandan todos y en orden.
+        val ordered = setOf(0, 6, 32, 38, Stops.CC_STOP, 96, 97, 98, 99, 100, 101)
         var count = 0
         var i = 0
         while (i < s.size && s.timeUs[i] < target) {

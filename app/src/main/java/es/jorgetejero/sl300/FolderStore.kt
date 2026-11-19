@@ -1,4 +1,4 @@
-package es.jorgetejero.praeludium
+package es.jorgetejero.sl300
 
 import android.content.Context
 import android.net.Uri

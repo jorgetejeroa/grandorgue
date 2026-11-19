@@ -1,4 +1,4 @@
-package es.jorgetejero.praeludium
+package es.jorgetejero.sl300
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice

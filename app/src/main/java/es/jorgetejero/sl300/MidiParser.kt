@@ -1,4 +1,4 @@
-package es.jorgetejero.praeludium
+package es.jorgetejero.sl300
 
 import java.io.ByteArrayOutputStream
 

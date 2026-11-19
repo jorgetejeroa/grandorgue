@@ -1,4 +1,4 @@
-package es.jorgetejero.praeludium
+package es.jorgetejero.sl300
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -133,10 +133,9 @@ class MainActivity : Activity() {
     private lateinit var autoCb: CheckBox
     private lateinit var gapText: TextView
     private lateinit var repeatCb: CheckBox
-    private lateinit var memText: TextView
     private lateinit var cleanCb: CheckBox
     private val stopViews = HashMap<Int, TextView>()
-    private lateinit var tremoloView: TextView
+    private val tremoloViews = HashMap<Int, TextView>()
     private lateinit var otherStopsText: TextView
     private lateinit var lyricsCb: CheckBox
     private lateinit var tvStatusText: TextView
@@ -401,15 +400,14 @@ class MainActivity : Activity() {
         )
 
         // Combinaciones
-        memText = label("", 16f).apply { gravity = Gravity.CENTER }
-        val memRow = row(button("Memoria −", 15f) { changeMem(-1) }, memText, button("Memoria +", 15f) { changeMem(1) })
-        updateMemText()
-        val pistons1 = row(*(0..5).map { n -> button(if (n == 0) "0" else "$n", 17f) { combination(n) } }.toTypedArray())
-        val pistons2 = row(*(6..10).map { n -> button("$n", 17f) { combination(n) } }.toTypedArray())
+        val pistons = row(*(1..5).map { n -> button("$n", 17f) { combination(n) } }.toTypedArray())
+        val transposerHint = label(
+            "El traspositor del órgano tiene que estar a 0 para reproducir y para grabar.", 14f
+        ).apply { setTextColor(Color.GRAY) }
 
         // Registros
         cleanCb = CheckBox(this).apply {
-            text = "Al terminar o detener, dejar el órgano como marcan sus placas"
+            text = "Al terminar o detener, apagar los registros que puso la pieza"
             textSize = 15f
             isChecked = player.cleanOnStop
             setOnCheckedChangeListener { _, ch ->
@@ -418,7 +416,7 @@ class MainActivity : Activity() {
             }
         }
         val stopsGrid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        for ((title, list) in listOf(Pair("Pedal", Stops.pedal), Pair("Gran Órgano", Stops.great), Pair("Recitativo", Stops.swell))) {
+        for ((title, list) in Stops.sections) {
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             col.addView(label(title, 15f).apply { setTypeface(typeface, Typeface.BOLD) })
             for (s in list) {
@@ -427,7 +425,7 @@ class MainActivity : Activity() {
                     textSize = 13f
                     setPadding(dp(4), dp(3), dp(4), dp(3))
                 }
-                if (s.isTremolo) tremoloView = tv else stopViews[s.key] = tv
+                if (s.isTremolo) tremoloViews[s.ch] = tv else stopViews[s.key] = tv
                 col.addView(tv)
             }
             stopsGrid.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -477,7 +475,7 @@ class MainActivity : Activity() {
         recordBtn = button("● Grabar") { toggleRecord() }.apply { setTextColor(Color.rgb(180, 0, 0)) }
         recordText = label("", 16f)
         val hint = label(
-            "Al grabar: pulsa Grabar y después pon la registración o la combinación, para que quede guardada.", 14f
+            "Al grabar: pon el traspositor a 0, pulsa Grabar y después pon la registración o la combinación, para que quede guardada.", 14f
         ).apply { setTextColor(Color.GRAY) }
 
         c.addView(titleText)
@@ -488,6 +486,7 @@ class MainActivity : Activity() {
         c.addView(transport)
         c.addView(markerTools)
         c.addView(header("Tempo y tono"))
+        c.addView(transposerHint)
         c.addView(tempoRow)
         c.addView(toneRow)
         c.addView(saveTempoBtn)
@@ -507,9 +506,7 @@ class MainActivity : Activity() {
         c.addView(markingPanel)
         c.addView(adelantoRow)
         c.addView(header("Combinaciones del órgano"))
-        c.addView(memRow)
-        c.addView(pistons1)
-        c.addView(pistons2)
+        c.addView(pistons)
         c.addView(header("Registros que suenan"))
         c.addView(stopsGrid)
         c.addView(otherStopsText)
@@ -631,13 +628,14 @@ class MainActivity : Activity() {
             tv.setBackgroundColor(if (isOn) Color.argb(110, 255, 193, 7) else Color.TRANSPARENT)
             tv.setTypeface(null, if (isOn) Typeface.BOLD else Typeface.NORMAL)
         }
-        val trem = shownStops.tremoloOn(0)
-        tremoloView.setBackgroundColor(if (trem) Color.argb(110, 255, 193, 7) else Color.TRANSPARENT)
-        tremoloView.setTypeface(null, if (trem) Typeface.BOLD else Typeface.NORMAL)
-        val others = on.filter { Stops.find(it) == null }
-        otherStopsText.text = if (others.isEmpty()) "" else "Otros registros puestos: " + others.joinToString(", ") { k ->
-            "${Stops.sectionName(k / 16384)} ${(k / 128) % 128}/${k % 128}"
+        for ((ch, tv) in tremoloViews) {
+            val trem = shownStops.tremoloOn(ch)
+            tv.setBackgroundColor(if (trem) Color.argb(110, 255, 193, 7) else Color.TRANSPARENT)
+            tv.setTypeface(null, if (trem) Typeface.BOLD else Typeface.NORMAL)
         }
+        val others = on.filter { Stops.find(it) == null }
+        otherStopsText.text = if (others.isEmpty()) "" else "Otros registros puestos: " +
+            others.joinToString(", ") { Stops.unknownLabel(it) }
     }
 
     // ================================================================== reproducción
@@ -840,23 +838,10 @@ class MainActivity : Activity() {
 
     // ================================================================== combinaciones
 
-    private fun changeMem(d: Int) {
-        val m = (prefs.getInt("mem", 1) + d).coerceIn(1, 50)
-        prefs.edit().putInt("mem", m).apply()
-        updateMemText()
-    }
-
-    private fun updateMemText() {
-        memText.text = "Memoria ${prefs.getInt("mem", 1)}"
-    }
-
+    /** Combinaciones 1–5 del SL 300: Program Change 1–5 en el canal 16, sin Bank Select. */
     private fun combination(n: Int) {
         if (!link.isConnected) { toast("Primero conecta con el órgano"); return }
-        val pc = if (n == 0) 0 else prefs.getInt("mem", 1) * 10 + n
-        link.send(cc(15, 0, 64))
-        link.send(cc(15, 32, pc / 128))
-        link.send(byteArrayOf(0xCF.toByte(), (pc % 128).toByte()))
-        if (n == 0) shownStops.clear()
+        link.send(byteArrayOf(0xCF.toByte(), n.toByte()))
     }
 
     // ================================================================== marcadores

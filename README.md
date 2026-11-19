@@ -1,22 +1,36 @@
-# Órgano Praeludium — app Android
+# Órgano SL 300 — app Android
 
-App para manejar el **Ahlborn Praeludium III** desde la tablet: conectar por Bluetooth (WIDI Master) o por cable MIDI-USB, **grabar** lo que se toca y **reproducir** los .mid de una carpeta de la tablet.
+App para manejar el **Ahlborn SL 300** de la parroquia de San Adrián desde la tablet. Es la misma app que «Órgano Praeludium» 0.2 (rama `app-praeludium`), adaptada a los canales, registros y combinaciones del SL 300. Las dos apps se pueden tener instaladas a la vez.
 
-Esta rama (`app-praeludium`) es independiente de Grand Orgue: solo contiene la app.
+Esta rama (`app-sl300`) es independiente de Grand Orgue: solo contiene la app.
 
-## Versión 0.1
-- Conectar: botón **Conectar** → elegir el dispositivo o **Buscar el órgano por Bluetooth…**. La app recuerda el último y se conecta sola al abrirla.
-- Carpeta: botón **Carpeta** → elegir o crear, por ejemplo, `Documentos/Órgano Praeludium`. Se puede entrar en subcarpetas.
-- Piezas: un toque carga la pieza; mantener pulsado la toca ya. Si está sonando una pieza, un toque en otra la marca como siguiente.
-- Reproducir / Pausa, Detener, Anterior, Siguiente, línea de tiempo (al saltar se ponen los registros de ese momento).
-- Tempo (25 %–200 %), tono (−6 a +6 semitonos, solo lo que reproduce la app), volumen general del órgano.
-- Paso automático (templo abierto) y repetir la lista.
-- Terminar suavemente (baja el volumen general en 5 s) y Silencio (corta notas colgadas).
-- **Grabar**: pulsar Grabar, poner la registración o la combinación, tocar, y pulsar Parar. Se guarda como .mid en la carpeta que se está viendo. Queda además una copia interna de la última grabación.
+## Qué hace
+- **Conexión** por cable MIDI-USB o Bluetooth (WIDI). Recuerda el último dispositivo y se reconecta sola; si se corta, pausa, avisa y reintenta.
+- **Carpeta** propia en la tablet, con subcarpetas.
+- **Piezas:** un toque carga, mantener pulsado toca ya; tocar otra mientras suena la deja como siguiente.
+- Reproducir / Pausa, Detener, Anterior, Siguiente, línea de tiempo (al saltar se ponen los registros y volúmenes de ese momento).
+- **Tempo** 25–200 % y **tono** ±6, recordados por pieza; guardar con ese tempo y tono (copia del original en «Originales»).
+- **Volumen** (CC7 de las cuatro secciones), **Terminar suavemente**, **Silencio**.
+- **Paso automático**, **repetir lista**, **marcadores** y **repetir un tramo**, **listas** Misa / Libre (`.golist`).
+- **Combinaciones 1–5** desde la tablet.
+- **Registros que suenan**, por su nombre, en cuatro columnas: Pedal, Positivo, Grand'Organo, Recitativo.
+- Al terminar o detener, **apagar los registros que puso la pieza** (casilla).
+- **Grabar** lo que se toca en el órgano a un .mid.
+- **Letras en la tele** (`<pieza>.letras`), igual que en la app del Praeludium.
+
+**El traspositor del órgano tiene que estar a 0** para reproducir y para grabar.
 
 ## Cómo conseguir el APK
-Cada cambio en esta rama lo compila GitHub (pestaña **Actions**) y lo publica en **Releases** como `OrganoPraeludium-0.1.N.apk`. Desde la tablet: abrir la página de Releases del repositorio, descargar el .apk e instalarlo (la primera vez Android pide permitir instalar apps de Chrome o de Archivos). Las versiones nuevas se instalan encima.
+Cada cambio en esta rama lo compila GitHub (pestaña **Actions**) y lo publica en **Releases** como `OrganoSL300-0.1.N.apk`. Desde la tablet: abrir la página de Releases, descargar el .apk e instalarlo. Las versiones nuevas se instalan encima.
 
-## Datos técnicos
-- Kotlin, sin librerías externas. minSdk 29 (Android 10).
-- Implementación MIDI del órgano: canales 1 Recitativo, 2 Gran Órgano, 4 Pedal, 16 Común; registros por NRPN (CC99 0/64 = apagado/encendido, CC98 banco, CC6 registro); combinaciones generales por Bank Select (CC0 = 64, CC32 = 0–3) + Program Change en el canal 16; CC7 volúmenes.
+## Implementación MIDI del SL 300
+- Canales: 1 Recitativo III, 2 Grand'Organo II, 3 Positivo I, 4 Pedal, 16 común. Do grave = nota 36.
+- Registros: **CC70** en el canal de la sección; valor = índice + 64 enciende, valor = índice apaga. La tabla está en `Stops.kt`.
+- Trémolos: **CC92** (127 / 0) en los canales 3 (Positivo) y 1 (Recitativo).
+- Combinaciones 1–5: **Program Change 1–5 en el canal 16**, sin Bank Select.
+
+## Pendiente de comprobar en el órgano
+1. Que cada índice de la tabla corresponde al registro que dice (se sacó suponiendo que se pulsaron en el orden del panel).
+2. Si el CC7 de cada sección baja el volumen.
+3. Si el órgano enciende la luz de un registro cuando le llega por MIDI.
+4. Si existe un pistón de anular / registración manual y qué manda.
